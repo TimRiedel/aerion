@@ -1,0 +1,28 @@
+# Execution configuration for the FlightBERT++ model
+# Includes all settings needed for model execution
+
+defaults:
+  - /base_config
+  - model: flight_bert
+  - dataset: january
+  - optimizer: adam
+  - _self_
+
+# Model-specific overrides for FlightBERT
+
+optimizer:
+  name: "adam"
+  learning_rate: 0.0001
+
+scheduler:
+  name: "cosine"
+  step_size: 20
+  gamma: 0.7
+
+trainer:
+  max_epochs: 50
+  precision: "16-mixed"
+
+dataset:
+  dataloader:
+    batch_size: 3072

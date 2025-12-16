@@ -1,0 +1,12 @@
+# Default trainer configuration
+max_epochs: 100
+accelerator: "gpu"  # Options: cpu, gpu, auto
+devices: "auto"  # Number of GPUs or "auto"
+precision: "32"  # Options: 32, 16, 16-mixed, bf16-mixed
+gradient_clip_val: null  # Set to a value to enable gradient clipping
+accumulate_grad_batches: 1
+log_every_n_steps: 50
+val_check_interval: 1.0  # Check validation every N epochs
+deterministic: false
+benchmark: true
+

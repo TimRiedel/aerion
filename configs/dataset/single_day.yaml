@@ -1,0 +1,16 @@
+# Base dataset configuration
+
+inputs_path: "/sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-single-day/trajectories/EDDB_trajectories-inputs_2024-01-01_2024-01-01.parquet"
+horizons_path: "/sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-single-day/trajectories/EDDB_trajectories-horizons_2024-01-01_2024-01-01.parquet"
+
+input_time_minutes: 5
+horizon_time_minutes: 40
+resampling_rate_seconds: 20
+
+dataloader:
+  batch_size: 1024
+  num_workers: 1
+  pin_memory: true
+  shuffle: true
+  drop_last: false
+
