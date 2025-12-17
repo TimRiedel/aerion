@@ -1,26 +1,21 @@
-# Execution configuration for the AERION model
+# Execution configuration for the Aerion model
 # Includes all settings needed for model execution
 
 defaults:
   - base_config
-  - model: base_model
-  - dataset: base_dataset
-  - optimizer: adam
+  - model: aerion
+  - dataset: single_day
   - _self_
-
-# Model-specific overrides
-
-optimizer:
-  name: "adam"
-  learning_rate: 1e-3
-  weight_decay: 0.0
 
 trainer:
   max_epochs: 100
-  precision: "16-mixed"
+
+optimizer:
+  _target_: torch.optim.Adam
+  name: adam
+  learning_rate: 1e-3
+  weight_decay: 0.0
 
 dataset:
-  inputs_path: "path/to/aerion/inputs"
-  horizons_path: "path/to/aerion/horizons"
   dataloader:
     batch_size: 32

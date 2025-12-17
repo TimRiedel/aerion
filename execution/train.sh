@@ -22,7 +22,8 @@ ulimit -n 8192
 # Set trainer.devices="auto" (default) to use all available GPUs, or specify
 # a number like trainer.devices=4 to use 4 GPUs, or trainer.devices=1 for single GPU.
 
-python src/train.py --config-name=execute_aerion \
+python src/main.py --config-name=execute_aerion \
+    stage=train \
     experiment_name=test_experiment \
     dataset=single_day \
     dataset.dataloader.batch_size=1024 \

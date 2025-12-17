@@ -19,6 +19,7 @@ ulimit -n 8192
 # Run Evaluation
 # ============================================================================
 
-python src/evaluate.py --config-name=execute_aerion \
+python src/main.py --config-name=execute_aerion \
+    stage=test \
     experiment_name=test_experiment \
-    checkpoint.path=checkpoints/best.ckpt
+    load_checkpoint_path=.outputs/checkpoints/best.ckpt

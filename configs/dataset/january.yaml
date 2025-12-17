@@ -1,4 +1,4 @@
-# Base dataset configuration
+name: "january"
 
 inputs_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB/trajectories/EDDB_trajectories-inputs_2024-01-01_2024-01-31.parquet"
 horizons_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB/trajectories/EDDB_trajectories-horizons_2024-01-01_2024-01-31.parquet"
