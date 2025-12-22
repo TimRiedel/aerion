@@ -1,0 +1,7 @@
+# Default trainer configuration
+max_epochs: 50
+accelerator: auto  # Options: cpu, gpu, auto
+devices: auto  # Number of GPUs or "auto"
+precision: "32"  # Options: 32, 16, 16-mixed, bf16-mixed
+log_every_n_steps: 50
+default_root_dir: .outputs

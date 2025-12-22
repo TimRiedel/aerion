@@ -1,0 +1,16 @@
+name: "january"
+
+inputs_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first3days/trajectories/EDDB_trajectories-inputs_2024-01-01_2024-01-31.parquet"
+horizons_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first3days/trajectories/EDDB_trajectories-horizons_2024-01-01_2024-01-31.parquet"
+
+input_time_minutes: 5
+horizon_time_minutes: 40
+resampling_rate_seconds: 20
+
+dataloader:
+  batch_size: 1024
+  num_workers: 4
+  pin_memory: true
+  shuffle: true
+  drop_last: false
+

@@ -1,0 +1,64 @@
+# Base Configuration File
+# This contains common settings shared across all models
+# Model-specific configs will extend/override parts of this config
+
+defaults:
+  - trainer: default
+  - model: default
+  - dataset: default
+  - _self_
+
+# --------------------------------------
+# General settings
+# --------------------------------------
+experiment_name: "unconfigured_experiment"
+stage: "train"
+seed: 42
+load_checkpoint_path: null # Only used for prediction and evaluation
+
+# --------------------------------------
+# Callbacks
+# --------------------------------------
+callbacks:
+  checkpoint:
+    _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    dirpath: ".outputs/checkpoints"
+    filename: "{epoch}-{val_loss:.2f}"
+    monitor: "val_loss"
+    mode: "min"
+    save_top_k: 1
+    save_last: true
+
+  early_stopping:
+    _target_: pytorch_lightning.callbacks.EarlyStopping
+    monitor: "val_loss"
+    mode: "min"
+    patience: 10
+    min_delta: 0.0
+
+  learning_rate_monitor:
+    _target_: pytorch_lightning.callbacks.LearningRateMonitor
+    logging_interval: "epoch"
+   
+# --------------------------------------
+# Optimizer
+# --------------------------------------
+optimizer:
+  _target_: torch.optim.AdamW
+  learning_rate: 0.0001
+
+# --------------------------------------
+# Weights and Biases
+# --------------------------------------
+wandb:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: "Approach Prediction"
+  name: ${experiment_name}
+  tags: ${model.name}, ${dataset.name}
+
+# --------------------------------------
+# Hydra configuration
+# --------------------------------------
+hydra:
+  run:
+    dir: .outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}

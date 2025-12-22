@@ -1,0 +1,25 @@
+# Execution configuration for the Aerion model
+# Includes all settings needed for model execution
+
+defaults:
+  - base_config
+  - model: aerion
+  - dataset: single_day
+  - _self_
+
+experiment_name: "aerion-debug"
+
+# --------------------------------------
+# Overrides
+# --------------------------------------
+trainer:
+  max_epochs: 100
+
+optimizer:
+  _target_: torch.optim.Adam
+  learning_rate: 1e-3
+  weight_decay: 0.0
+
+dataset:
+  dataloader:
+    batch_size: 3072
