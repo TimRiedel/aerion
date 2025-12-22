@@ -4,8 +4,6 @@
 
 defaults:
   - trainer: default
-  - model: default
-  - dataset: default
   - _self_
 
 # --------------------------------------
@@ -39,7 +37,21 @@ callbacks:
   learning_rate_monitor:
     _target_: pytorch_lightning.callbacks.LearningRateMonitor
     logging_interval: "epoch"
-   
+
+# --------------------------------------
+# Data processing
+# --------------------------------------
+dataloader:
+  _target_: torch.utils.data.DataLoader
+  batch_size: 1024
+  num_workers: 4
+  pin_memory: true
+  shuffle: true
+  drop_last: false
+
+data_processing:
+  validation_percentage: 0.2
+
 # --------------------------------------
 # Optimizer
 # --------------------------------------

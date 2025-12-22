@@ -2,7 +2,7 @@
 # Includes all settings needed for model execution
 
 defaults:
-  - /base_config
+  - base_config
   - model: flight_bert
   - dataset: single_day
   - _self_
@@ -10,6 +10,8 @@ defaults:
 # --------------------------------------
 # Overrides
 # --------------------------------------
+experiment_name: "flightbert-debug"
+
 trainer:
   max_epochs: 50
 
@@ -22,6 +24,8 @@ scheduler:
   step_size: 20
   gamma: 0.7
 
-dataset:
-  dataloader:
-    batch_size: 3072
+dataloader:
+  batch_size: 3072
+
+data_processing:
+  feature_cols: ["latitude", "longitude", "altitude", "speed_x", "speed_y", "speed_z"]
