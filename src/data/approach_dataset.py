@@ -12,7 +12,7 @@ class ApproachDataset(Dataset):
         input_time_minutes: int,
         horizon_time_minutes: int,
         resampling_rate_seconds: int,
-        feature_cols: Optional[List[str]] = ["latitude", "longitude", "altitude", "groundspeed", "track", "vertical_rate"],
+        feature_cols: Optional[List[str]] = ["latitude", "longitude", "altitude", "groundspeed", "track"],
         transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
     ):
         self.inputs_path = inputs_path
@@ -59,7 +59,6 @@ class ApproachDataset(Dataset):
             raise IndexError(f"Index {idx} out of range for dataset of size {len(self)}")
 
         flight_id = self.flight_ids[idx]
-
         input_df = self.grouped_inputs_df.get_group(flight_id)[self.feature_cols]
         horizon_df = self.grouped_horizons_df.get_group(flight_id)[self.feature_cols]
         
@@ -70,14 +69,15 @@ class ApproachDataset(Dataset):
         x = torch.from_numpy(input_df.astype("float32").values)
         y = torch.from_numpy(horizon_df.astype("float32").values)
         current_position = x[-1:]
-        y_in = torch.cat([current_position, y[:-1]], dim=0)
+        # y_in is y shifted by one to the right (including current position) 
+        dec_in = torch.cat([current_position, y[:-1]], dim=0) 
 
-        y, y_in, mask = self._pad_horizons(y, y_in, horizon_len)
+        y, dec_in, mask = self._pad_horizons(y, dec_in, horizon_len)
 
         sample = {
             "x": x,
             "y": y,
-            "y_in": y_in,
+            "dec_in": dec_in,
             "mask": mask,
             "flight_id": flight_id
         }
@@ -91,7 +91,7 @@ class ApproachDataset(Dataset):
     def _pad_horizons(
         self,
         y: torch.Tensor,
-        y_in: torch.Tensor,
+        dec_in: torch.Tensor,
         horizon_len: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.BoolTensor]:
         if horizon_len < self.horizon_seq_len:
@@ -100,14 +100,14 @@ class ApproachDataset(Dataset):
             padding = last_value.repeat(padding_len, 1)
 
             y = torch.cat([y, padding], dim=0)
-            y_in = torch.cat([y_in, padding], dim=0)
+            dec_in = torch.cat([dec_in, padding], dim=0)
             mask = torch.cat([
                 torch.zeros(horizon_len, dtype=torch.bool),
                 torch.ones(padding_len, dtype=torch.bool)
             ])
         else:
             y = y[:self.horizon_seq_len]
-            y_in = y_in[:self.horizon_seq_len]
+            dec_in = dec_in[:self.horizon_seq_len]
             mask = torch.zeros(self.horizon_seq_len, dtype=torch.bool)
 
-        return y, y_in, mask
+        return y, dec_in, mask
