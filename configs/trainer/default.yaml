@@ -2,6 +2,9 @@
 max_epochs: 50
 accelerator: auto  # Options: cpu, gpu, auto
 devices: auto  # Number of GPUs or "auto"
-precision: "32"  # Options: 32, 16, 16-mixed, bf16-mixed
-log_every_n_steps: 50
+precision: "bf16-mixed"  # Options: 32, 16, 16-mixed, bf16-mixed
+log_every_n_steps: 1
 default_root_dir: .outputs
+limit_train_batches: null
+limit_val_batches: null
+fast_dev_run: False
