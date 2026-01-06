@@ -55,14 +55,14 @@ class AerionData(pl.LightningDataModule):
 
             # Split train and validation datasets
             val_pct = self.processing_cfg.validation_percentage
-            self.train_ds, self.val_ds = random_split(
+            train_ds, val_ds = random_split(
                 full_train_ds, [1 - val_pct, val_pct], generator=torch.Generator().manual_seed(self.seed)
             )
 
             # Normalization transforms
-            self.norm_mean, self.norm_std = self._compute_feature_stats(self.train_ds)
-            self.train_ds.transform = self._get_transform(self.norm_mean, self.norm_std)
-            self.val_ds.transform = self._get_transform(self.norm_mean, self.norm_std)
+            self.norm_mean, self.norm_std = self._compute_feature_stats(train_ds)
+            full_train_ds.transform = self._get_transform(self.norm_mean, self.norm_std) # Important: set transform on full train dataset, not on subsets
+            self.train_ds, self.val_ds = train_ds, val_ds
 
         if stage == "test":
             if self.norm_mean is None or self.norm_std is None:
@@ -95,6 +95,8 @@ class AerionData(pl.LightningDataModule):
         all_x = []
         for i in range(len(dataset)):
             sample = dataset[i]
+            # Ensure stats match the feature space used during training/validation.
+            sample = self.base_transform(sample)
             all_x.append(sample["x"])
         x_all = torch.cat(all_x, dim=0)
         mean = x_all.mean(dim=0)
