@@ -14,7 +14,7 @@ defaults:
 experiment_name: "transformer-debug"
 
 trainer:
-  max_epochs: 100
+  max_epochs: 50
 
 optimizer:
   _target_: torch.optim.AdamW

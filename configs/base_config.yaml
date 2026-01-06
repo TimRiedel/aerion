@@ -13,6 +13,8 @@ experiment_name: "unconfigured_experiment"
 stage: "train"
 seed: 42
 load_checkpoint_path: null # Only used for prediction and evaluation
+debug:
+  num_waypoints_to_predict: null
 
 # --------------------------------------
 # Callbacks

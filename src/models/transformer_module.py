@@ -2,7 +2,7 @@ from hydra.utils import instantiate
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from omegaconf import DictConfig, OmegaConf
 
 
@@ -15,14 +15,15 @@ class TransformerModule(pl.LightningModule):
         horizon_seq_len: int,
         norm_mean: Optional[torch.Tensor] = None,
         norm_std: Optional[torch.Tensor] = None,
+        num_waypoints_to_predict: int = None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["datamodule"])
         self.model = instantiate(model_cfg["params"])
-        nn.Transformer()
         self.optimizer_cfg = optimizer_cfg
         self.input_seq_len = input_seq_len
         self.horizon_seq_len = horizon_seq_len
+        self.num_waypoints_to_predict = num_waypoints_to_predict if num_waypoints_to_predict is not None else horizon_seq_len
 
         # self.example_input_array = torch.Tensor(1, input_seq_len, 6) # Debug only
         
@@ -33,12 +34,12 @@ class TransformerModule(pl.LightningModule):
         if norm_mean is not None and norm_std is not None:
             self.register_buffer("norm_mean", norm_mean)
             self.register_buffer("norm_std", norm_std)
-        
-    
+
     def training_step(self, batch, batch_idx):
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
+        x, y, dec_in, tgt_pad_mask = self._limit_data_to_effective_horizon(x, y, dec_in, tgt_pad_mask)
 
-        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.horizon_seq_len, dtype=torch.bool).to(x.device)
+        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.num_waypoints_to_predict, dtype=torch.bool).to(x.device)
         outputs = self.model(
             src=x,
             tgt=dec_in,
@@ -51,10 +52,12 @@ class TransformerModule(pl.LightningModule):
         
         return loss
     
+
     def validation_step(self, batch: Dict[str, Any], batch_idx: int) -> torch.Tensor:
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
+        x, y, dec_in, tgt_pad_mask = self._limit_data_to_effective_horizon(x, y, dec_in, tgt_pad_mask)
 
-        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.horizon_seq_len, dtype=torch.bool).to(x.device)
+        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.num_waypoints_to_predict, dtype=torch.bool).to(x.device)
         outputs = self.model(
             src=x,
             tgt=dec_in,
@@ -67,9 +70,19 @@ class TransformerModule(pl.LightningModule):
         
         return loss
     
+
     def test_step(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
         raise NotImplementedError("Test step not implemented")
+
+
+    def _limit_data_to_effective_horizon(self, x: torch.Tensor, y: torch.Tensor, dec_in: torch.Tensor, tgt_pad_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        effective_horizon = self.num_waypoints_to_predict if self.num_waypoints_to_predict is not None else self.horizon_seq_len
+        y = y[:, :effective_horizon]
+        dec_in = dec_in[:, :effective_horizon]
+        tgt_pad_mask = tgt_pad_mask[:, :effective_horizon]
+        return x, y, dec_in, tgt_pad_mask
     
+
     def _compute_loss(
         self,
         predictions: torch.Tensor,
