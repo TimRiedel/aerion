@@ -26,5 +26,5 @@ python src/main.py --config-name=execute_aerion \
     stage=train \
     experiment_name=test_experiment \
     dataset=single_day \
-    dataset.dataloader.batch_size=1024 \
+    dataloader.batch_size=1024 \
     trainer.max_epochs=50 \

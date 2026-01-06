@@ -4,8 +4,6 @@
 
 defaults:
   - trainer: default
-  - model: default
-  - dataset: default
   - _self_
 
 # --------------------------------------
@@ -22,7 +20,7 @@ load_checkpoint_path: null # Only used for prediction and evaluation
 callbacks:
   checkpoint:
     _target_: pytorch_lightning.callbacks.ModelCheckpoint
-    dirpath: ".outputs/checkpoints"
+    dirpath: ".outputs"
     filename: "{epoch}-{val_loss:.2f}"
     monitor: "val_loss"
     mode: "min"
@@ -39,13 +37,27 @@ callbacks:
   learning_rate_monitor:
     _target_: pytorch_lightning.callbacks.LearningRateMonitor
     logging_interval: "epoch"
-   
+
+# --------------------------------------
+# Data processing
+# --------------------------------------
+dataloader:
+  _target_: torch.utils.data.DataLoader
+  batch_size: 1024
+  num_workers: 4
+  pin_memory: true
+  shuffle: true
+  drop_last: false
+
+data_processing:
+  validation_percentage: 0.2
+
 # --------------------------------------
 # Optimizer
 # --------------------------------------
 optimizer:
   _target_: torch.optim.AdamW
-  learning_rate: 0.0001
+  lr: 0.0001
 
 # --------------------------------------
 # Weights and Biases

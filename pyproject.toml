@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aerion"
-version = ["version"]
+version = "0.1.0"
 description = "AERION - Approach Estimation and Representation of Intent for Operational Navigation"
 readme = "README.md"
 requires-python = ">=3.12"

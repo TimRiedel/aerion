@@ -7,19 +7,23 @@ defaults:
   - dataset: single_day
   - _self_
 
-experiment_name: "aerion-debug"
-
 # --------------------------------------
 # Overrides
 # --------------------------------------
+
+experiment_name: "aerion-debug"
+
 trainer:
   max_epochs: 100
 
 optimizer:
-  _target_: torch.optim.Adam
-  learning_rate: 1e-3
+  _target_: torch.optim.AdamW
+  lr: 1e-3
   weight_decay: 0.0
 
-dataset:
-  dataloader:
-    batch_size: 3072
+dataloader:
+  batch_size: 3072
+
+data_processing:
+  icao_code: "EDDB"
+  feature_cols: ["latitude", "longitude", "altitude", "groundspeed", "track", "vertical_rate"]

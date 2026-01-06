@@ -1,5 +1,0 @@
-# Base model configuration, used for specifying the model architecture
-# Copy this file and modify it for your model
-
-name: base_model
-
