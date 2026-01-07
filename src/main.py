@@ -17,15 +17,12 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
 
     data = AerionData(cfg["dataset"], cfg["data_processing"], cfg["dataloader"], cfg.seed)
 
-
     num_waypoints_to_predict = cfg.get("debug", {}).get("num_waypoints_to_predict", None)
     model = TransformerModule(
         cfg["model"],
         cfg["optimizer"],
         input_seq_len,
         horizon_seq_len,
-        data.norm_mean,
-        data.norm_std,
         num_waypoints_to_predict=num_waypoints_to_predict,
     )
     trainer.fit(model, data)

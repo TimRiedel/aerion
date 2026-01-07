@@ -13,8 +13,6 @@ class TransformerModule(pl.LightningModule):
         optimizer_cfg: DictConfig,
         input_seq_len: int,
         horizon_seq_len: int,
-        norm_mean: Optional[torch.Tensor] = None,
-        norm_std: Optional[torch.Tensor] = None,
         num_waypoints_to_predict: int = None,
     ):
         super().__init__()
@@ -30,10 +28,14 @@ class TransformerModule(pl.LightningModule):
         # Loss function
         self.criterion = nn.MSELoss(reduction="none")
         
-        # Register normalization buffers
-        if norm_mean is not None and norm_std is not None:
-            self.register_buffer("norm_mean", norm_mean)
-            self.register_buffer("norm_std", norm_std)
+
+    def on_fit_start(self):
+        dm = self.trainer.datamodule
+
+        self.register_buffer("norm_mean", dm.norm_mean)
+        self.register_buffer("norm_std", dm.norm_std)
+
+        self.denormalize = ZScoreDenormalize(dm.norm_mean, dm.norm_std)
 
     def training_step(self, batch, batch_idx):
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
