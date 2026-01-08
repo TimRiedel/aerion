@@ -1,9 +1,14 @@
-from hydra.utils import instantiate
+import wandb
 import torch
 import torch.nn as nn
+import pandas as pd
 import pytorch_lightning as pl
-from typing import Dict, Any, Optional, Tuple
+import matplotlib.pyplot as plt
+from typing import Dict, Any, List, Optional, Tuple
 from omegaconf import DictConfig, OmegaConf
+from hydra.utils import instantiate
+
+from data.transforms.normalize import ZScoreDenormalize
 
 
 class TransformerModule(pl.LightningModule):
@@ -23,7 +28,9 @@ class TransformerModule(pl.LightningModule):
         self.horizon_seq_len = horizon_seq_len
         self.num_waypoints_to_predict = num_waypoints_to_predict if num_waypoints_to_predict is not None else horizon_seq_len
 
-        # self.example_input_array = torch.Tensor(1, input_seq_len, 6) # Debug only
+        # Evaluation horizons
+        predefined_horizons = [1, 10, 20, 40, 60, 80, 100, 120]
+        self.evaluation_horizons = [h for h in predefined_horizons if h <= self.num_waypoints_to_predict]
         
         # Loss function
         self.criterion = nn.MSELoss(reduction="none")
@@ -36,6 +43,42 @@ class TransformerModule(pl.LightningModule):
         self.register_buffer("norm_std", dm.norm_std)
 
         self.denormalize = ZScoreDenormalize(dm.norm_mean, dm.norm_std)
+
+
+    def on_validation_epoch_start(self):
+        H = len(self.evaluation_horizons) # Number horizons
+        F = self.model.input_dim          # Number features
+
+        device = self.device
+
+        self.val_sum_abs_error = torch.zeros(H, F, device=device)
+        self.val_sum_sq_error = torch.zeros(H, F, device=device)
+        self.val_sum_distance_error = torch.zeros(H, device=device)
+        self.val_count = torch.zeros(H, device=device)
+
+
+    def on_validation_epoch_end(self):
+        for tensor in [  # Needed for DDP
+            self.val_sum_abs_error,
+            self.val_sum_sq_error,
+            self.val_sum_distance_error,
+            self.val_count,
+        ]:
+            self.trainer.strategy.reduce(tensor, reduce_op="sum")
+
+        count = self.val_count.clamp(min=1.0).unsqueeze(1)
+
+        mae = self.val_sum_abs_error / count
+        rmse = torch.sqrt(self.val_sum_sq_error / count)
+        mde = (self.val_sum_distance_error / self.val_count.clamp(min=1.0)) / 1000 # Convert to km
+        mde = mde.unsqueeze(1)  # Reshape from (H,) to (H, 1) to match log_table_metric expectations
+
+        for feature in ["E", "N", "U", "Speed_E", "Speed_N", "Speed_U"]:
+            self._log_error_vs_horizon(mae, "MAE", feature)
+            self._log_error_vs_horizon(rmse, "RMSE", feature)
+
+        self._log_error_vs_horizon(mde, "MDE")
+
 
     def training_step(self, batch, batch_idx):
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
@@ -54,7 +97,6 @@ class TransformerModule(pl.LightningModule):
         
         return loss
     
-
     def validation_step(self, batch: Dict[str, Any], batch_idx: int) -> torch.Tensor:
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
         x, y, dec_in, tgt_pad_mask = self._limit_data_to_effective_horizon(x, y, dec_in, tgt_pad_mask)
@@ -69,6 +111,32 @@ class TransformerModule(pl.LightningModule):
 
         loss = self._compute_loss(outputs, y, tgt_pad_mask)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
+
+        denorm_predictions = self.denormalize(outputs, batched=True)
+        denorm_targets = self.denormalize(y, batched=True)
+
+        for h_idx, h in enumerate(self.evaluation_horizons):
+            t = h - 1  # horizon index
+
+            valid = ~tgt_pad_mask[:, t]
+            if valid.sum() == 0:
+                continue
+
+            p = denorm_predictions[valid, t]
+            gt = denorm_targets[valid, t]
+
+            abs_err = torch.abs(p - gt)
+            sq_err = (p - gt) ** 2
+
+            # Feature-wise
+            self.val_sum_abs_error[h_idx] += abs_err.sum(dim=0)
+            self.val_sum_sq_error[h_idx] += sq_err.sum(dim=0)
+
+            # Distance error (ENU assumed in first 3 dims)
+            dist_err = torch.norm(p[:, :3] - gt[:, :3], dim=1)
+            self.val_sum_distance_error[h_idx] += dist_err.sum()
+
+            self.val_count[h_idx] += valid.sum()
         
         return loss
     
@@ -106,8 +174,35 @@ class TransformerModule(pl.LightningModule):
         
         loss = self.criterion(predictions[active_loss], targets[active_loss]).mean()
         return loss
+
     
+    def _log_error_vs_horizon(self, metric: torch.Tensor, metric_name: str, feature_name: str = None):
+        if feature_name is not None:
+            features = ["E", "N", "U", "Speed_E", "Speed_N", "Speed_U"]
+            feat_idx = features.index(feature_name)
+            metric = metric[:, feat_idx].detach().cpu().tolist()
+            name = f"{metric_name}-{feature_name}"
+        else:
+            feature_name = "Distance"
+            name = metric_name
+
+        table = wandb.Table(columns=[name, "Horizon"])
+        for h_idx, h in enumerate(self.evaluation_horizons):
+            v = metric[h_idx]
+            table.add_data(v, h) # categorical x-axis
+
+        fields = {"value": name, "label": "Horizon"}
+        custom_chart = wandb.plot_table(
+            vega_spec_name="timriedel/error_by_horizon",
+            data_table=table,
+            fields=fields,
+        )
+
+        self.logger.experiment.log({
+            f"val-{metric_name.lower()}/{name}": custom_chart
+        })
     
+
     def configure_optimizers(self):
         optimizer = instantiate(self.optimizer_cfg, params=self.model.parameters())
         

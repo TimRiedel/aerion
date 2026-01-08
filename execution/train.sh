@@ -27,4 +27,3 @@ python src/main.py --config-name=execute_transformer \
     experiment_name=transformer-debug \
     dataset=single_day \
     dataloader.batch_size=1024 \
-    trainer.max_epochs=50 \
