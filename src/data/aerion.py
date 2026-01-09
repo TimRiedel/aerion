@@ -22,14 +22,12 @@ class AerionData(pl.LightningDataModule):
 
         # TODO: refactor this -> move ENU transforms to FlightFusion
         lat, lon = airports[self.processing_cfg.icao_code].latlon
-        runway_alt = airports[self.processing_cfg.icao_code].altitude
         self.base_transform = T.Compose([
-            ENUCoordinateTransform(
-                runway_lat=lat,
-                runway_lon=lon,
-                runway_alt=runway_alt
+            ENCoordinateTransform(
+                ref_lat=lat,
+                ref_lon=lon,
             ),
-            ENUVelocityTransform(
+            VelocityTransform(
                 dt=self.dataset_cfg.resampling_rate_seconds
             )
         ])
