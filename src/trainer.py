@@ -4,7 +4,7 @@ from typing import List
 from omegaconf import DictConfig
 from hydra.utils import instantiate
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint, RichProgressBar
 from pytorch_lightning.loggers import WandbLogger
 
 warnings.filterwarnings("ignore", message=".*srun.*")
@@ -50,6 +50,8 @@ class Trainer(pl.Trainer):
                 save_last=checkpoint_cfg.get("save_last", True)
             )
             callbacks.append(checkpoint)
+
+        callbacks.append(RichProgressBar())
 
         return callbacks
 

@@ -1,4 +1,5 @@
 import logging
+import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import torch
@@ -7,9 +8,12 @@ from trainer import Trainer
 from data import *
 from models import *
 
+
 # Enable Tensor Core optimization for better performance on CUDA devices with Tensor Cores
 torch.set_float32_matmul_precision('high')
+os.environ.setdefault("WANDB_DIR", ".wandb")
 logger = logging.getLogger(__name__)
+
 
 def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     trainer = Trainer(cfg["trainer"], cfg["callbacks"], cfg["wandb"])

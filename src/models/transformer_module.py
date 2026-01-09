@@ -1,11 +1,9 @@
 import wandb
 import torch
 import torch.nn as nn
-import pandas as pd
 import pytorch_lightning as pl
-import matplotlib.pyplot as plt
-from typing import Dict, Any, List, Optional, Tuple
-from omegaconf import DictConfig, OmegaConf
+from typing import Any, Dict, Tuple
+from omegaconf import DictConfig
 from hydra.utils import instantiate
 
 from data.transforms.normalize import ZScoreDenormalize
@@ -66,14 +64,19 @@ class TransformerModule(pl.LightningModule):
         ]:
             self.trainer.strategy.reduce(tensor, reduce_op="sum")
 
+        # count.shape: [num horizons, 1]
         count = self.val_count.clamp(min=1.0).unsqueeze(1)
 
+        # mae.shape = rmse.shape = mde.shape: [num horizons, num features]
         mae = self.val_sum_abs_error / count
         rmse = torch.sqrt(self.val_sum_sq_error / count)
-        mde = (self.val_sum_distance_error / self.val_count.clamp(min=1.0)) / 1000 # Convert to km
-        mde = mde.unsqueeze(1)  # Reshape from (H,) to (H, 1) to match log_table_metric expectations
 
-        for feature in ["E", "N", "U", "Speed_E", "Speed_N", "Speed_U"]:
+        # Reshape from (H,) to (H, 1) to match log_table_metric expectations
+        # mde.shape: [num horizons, 1]
+        val_sum_distance_error = self.val_sum_distance_error.unsqueeze(1)
+        mde = (val_sum_distance_error / count)
+
+        for feature in ["E", "N", "Altitude", "Speed_E", "Speed_N", "Vertical_Rate"]:
             self._log_error_vs_horizon(mae, "MAE", feature)
             self._log_error_vs_horizon(rmse, "RMSE", feature)
 
@@ -118,25 +121,30 @@ class TransformerModule(pl.LightningModule):
         for h_idx, h in enumerate(self.evaluation_horizons):
             t = h - 1  # horizon index
 
-            valid = ~tgt_pad_mask[:, t]
-            if valid.sum() == 0:
+            # Valid trajectories at time/horizon t (only these trajectories which are not padded at t)
+            valid_traj_at_t = ~tgt_pad_mask[:, t] 
+            if valid_traj_at_t.sum() == 0:
                 continue
 
-            p = denorm_predictions[valid, t]
-            gt = denorm_targets[valid, t]
+            # p.shape = gt.shape: [num valid trajectories at t, num features]
+            p = denorm_predictions[valid_traj_at_t, t]
+            gt = denorm_targets[valid_traj_at_t, t]
 
+            # abs_err.shape = sq_err.shape: [num valid trajectories at t, num features]
             abs_err = torch.abs(p - gt)
             sq_err = (p - gt) ** 2
 
             # Feature-wise
+            # val_sum_abs_error.shape = val_sum_sq_error.shape: [num horizons, num features]
             self.val_sum_abs_error[h_idx] += abs_err.sum(dim=0)
             self.val_sum_sq_error[h_idx] += sq_err.sum(dim=0)
 
-            # Distance error (ENU assumed in first 3 dims)
+            # Distance error (EN + altitude in first 3 dims)
+            # val_sum_distance_error.shape: [num horizons]
             dist_err = torch.norm(p[:, :3] - gt[:, :3], dim=1)
             self.val_sum_distance_error[h_idx] += dist_err.sum()
 
-            self.val_count[h_idx] += valid.sum()
+            self.val_count[h_idx] += valid_traj_at_t.sum()
         
         return loss
     
@@ -175,13 +183,13 @@ class TransformerModule(pl.LightningModule):
         loss = self.criterion(predictions[active_loss], targets[active_loss]).mean()
         return loss
 
-    
+
     def _log_error_vs_horizon(self, metric: torch.Tensor, metric_name: str, feature_name: str = None):
         if feature_name is not None:
-            features = ["E", "N", "U", "Speed_E", "Speed_N", "Speed_U"]
+            features = ["E", "N", "Altitude", "Speed_E", "Speed_N", "Vertical_Rate"]
             feat_idx = features.index(feature_name)
             metric = metric[:, feat_idx].detach().cpu().tolist()
-            name = f"{metric_name}-{feature_name}"
+            name = f"{metric_name} {feature_name}"
         else:
             feature_name = "Distance"
             name = metric_name
