@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     trainer = Trainer(cfg["trainer"], cfg["callbacks"], cfg["wandb"])
-    trainer.logger.config = cfg
+    log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
+    log_hydra_config_to_wandb(cfg, trainer)
 
     data = AerionData(cfg["dataset"], cfg["data_processing"], cfg["dataloader"], cfg.seed)
 
@@ -41,11 +42,36 @@ def test(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
 def calculate_seq_len(time_minutes: int, resampling_rate_seconds: int) -> int:
     return time_minutes * 60 // resampling_rate_seconds
 
+def log_hydra_config_to_wandb(cfg: DictConfig, trainer: Trainer) -> None:
+    trainer.logger.experiment.config.update(
+        OmegaConf.to_container(cfg, resolve=True),
+        allow_val_change=True
+    )
+
+def log_important_parameters(cfg: DictConfig, trainer: Trainer, input_seq_len: int, horizon_seq_len: int) -> None:
+    num_waypoints_to_predict = cfg.get("debug", {}).get("num_waypoints_to_predict", None)
+    num_waypoints_to_predict = num_waypoints_to_predict if num_waypoints_to_predict is not None else horizon_seq_len
+
+    formatted = f"""\
+    ----------------------------------------
+    Parameters for {cfg.experiment_name}:
+    ----------------------------------------
+    Model name:                 {cfg.model.name}
+    Batch size:                 {cfg.dataloader.batch_size}
+    Learning rate:              {cfg.optimizer.lr}
+    Weight Decay:               {cfg.optimizer.weight_decay}
+    Max Epochs:                 {cfg.trainer.max_epochs}
+
+    Dataset:                    {cfg.dataset.name}
+    Input Length:               {input_seq_len}
+    Horizon Length:             {horizon_seq_len}
+    Num waypoints to predict:   {num_waypoints_to_predict}
+    """
+    logger.info("\n%s", formatted)
+
 
 @hydra.main(version_base=None, config_path="../configs", config_name="execute_aerion")
 def main(cfg: DictConfig) -> None:
-    logger.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
-
     if cfg.get('seed', None) is not None:
         torch.manual_seed(cfg.seed)
         torch.cuda.manual_seed_all(cfg.seed)
