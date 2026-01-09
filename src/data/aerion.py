@@ -90,15 +90,18 @@ class AerionData(pl.LightningDataModule):
 
     def _compute_feature_stats(self, dataset: torch.utils.data.Dataset) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute per-feature mean and std for the trajectory data."""
-        all_x = []
+        all_feat = []
         for i in range(len(dataset)):
             sample = dataset[i]
             # Ensure stats match the feature space used during training/validation.
             sample = self.base_transform(sample)
-            all_x.append(sample["x"])
-        x_all = torch.cat(all_x, dim=0)
-        mean = x_all.mean(dim=0)
-        std = x_all.std(dim=0)
+            all_feat.append(sample["x"])
+            all_feat.append(sample["y"])
+        feat_all = torch.cat(all_feat, dim=0)
+        mean = feat_all.mean(dim=0)
+        std = feat_all.std(dim=0)
+        # Avoid near-zero std -> huge normalized values
+        std = std.clamp(min=1e-2)
         return mean, std
 
     def _get_transform(self, mean: torch.Tensor, std: torch.Tensor):
