@@ -14,11 +14,20 @@ logger = logging.getLogger(__name__)
 
 
 class AerionData(pl.LightningDataModule):
-    def __init__(self, dataset_cfg: DictConfig, processing_cfg: DictConfig, dataloader_cfg: DictConfig, seed: int, norm_mean: torch.Tensor = None, norm_std: torch.Tensor = None):
+    def __init__(self,
+        dataset_cfg: DictConfig,
+        processing_cfg: DictConfig,
+        dataloader_cfg: DictConfig,
+        seed: int,
+        norm_mean: torch.Tensor = None,
+        norm_std: torch.Tensor = None,
+        num_trajectories_to_predict: int = None,
+    ):
         super().__init__()
         self.dataset_cfg = dataset_cfg
         self.dataloader_cfg = dataloader_cfg
         self.processing_cfg = processing_cfg
+        self.num_trajectories_to_predict = num_trajectories_to_predict
 
         # TODO: refactor this -> move ENU transforms to FlightFusion
         lat, lon = airports[self.processing_cfg.icao_code].latlon
@@ -49,13 +58,17 @@ class AerionData(pl.LightningDataModule):
                 horizon_time_minutes=self.dataset_cfg.horizon_time_minutes,
                 resampling_rate_seconds=self.dataset_cfg.resampling_rate_seconds,
                 feature_cols=self.processing_cfg.feature_cols,
+                num_trajectories_to_predict=self.num_trajectories_to_predict,
             )
 
-            # Split train and validation datasets
-            val_pct = self.processing_cfg.validation_percentage
-            train_ds, val_ds = random_split(
-                full_train_ds, [1 - val_pct, val_pct], generator=torch.Generator().manual_seed(self.seed)
-            )
+            # Split train and validation datasets, but only if num_trajectories_to_predict is not set for debugging
+            if self.num_trajectories_to_predict is None:
+                val_pct = self.processing_cfg.validation_percentage
+                train_ds, val_ds = random_split(
+                    full_train_ds, [1 - val_pct, val_pct], generator=torch.Generator().manual_seed(self.seed)
+                )
+            else:
+                train_ds = val_ds = full_train_ds
 
             # Normalization transforms
             self.norm_mean, self.norm_std = self._compute_feature_stats(train_ds)
@@ -73,6 +86,7 @@ class AerionData(pl.LightningDataModule):
                 horizon_time_minutes=self.dataset_cfg.horizon_time_minutes,
                 resampling_rate_seconds=self.dataset_cfg.resampling_rate_seconds,
                 feature_cols=self.processing_cfg.feature_cols,
+                num_trajectories_to_predict=self.num_trajectories_to_predict,
                 transform=self._get_transform(self.norm_mean, self.norm_std),
             )
 

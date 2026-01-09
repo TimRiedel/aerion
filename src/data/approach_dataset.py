@@ -13,6 +13,7 @@ class ApproachDataset(Dataset):
         horizon_time_minutes: int,
         resampling_rate_seconds: int,
         feature_cols: Optional[List[str]] = ["latitude", "longitude", "altitude", "groundspeed", "track"],
+        num_trajectories_to_predict: int = None,
         transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
     ):
         self.inputs_path = inputs_path
@@ -32,7 +33,10 @@ class ApproachDataset(Dataset):
 
         self._validate_feature_cols(feature_cols)
         self.feature_cols = feature_cols
+
         self.flight_ids = sorted(self.inputs_df["flight_id"].unique().tolist())
+        if num_trajectories_to_predict is not None:
+            self.flight_ids = self.flight_ids[:num_trajectories_to_predict]
         self.size = len(self.flight_ids)
 
     def _validate_feature_cols(self, feature_cols: List[str]) -> None:

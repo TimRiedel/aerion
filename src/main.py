@@ -20,9 +20,16 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
     log_hydra_config_to_wandb(cfg, trainer)
 
-    data = AerionData(cfg["dataset"], cfg["data_processing"], cfg["dataloader"], cfg.seed)
-
+    num_trajectories_to_predict = cfg.get("debug", {}).get("num_trajectories_to_predict", None)
     num_waypoints_to_predict = cfg.get("debug", {}).get("num_waypoints_to_predict", None)
+
+    data = AerionData(
+        cfg["dataset"],
+        cfg["data_processing"],
+        cfg["dataloader"],
+        cfg.seed,
+        num_trajectories_to_predict=num_trajectories_to_predict,
+    )
     model = TransformerModule(
         cfg["model"],
         cfg["optimizer"],
@@ -50,7 +57,8 @@ def log_hydra_config_to_wandb(cfg: DictConfig, trainer: Trainer) -> None:
 
 def log_important_parameters(cfg: DictConfig, trainer: Trainer, input_seq_len: int, horizon_seq_len: int) -> None:
     num_waypoints_to_predict = cfg.get("debug", {}).get("num_waypoints_to_predict", None)
-    num_waypoints_to_predict = num_waypoints_to_predict if num_waypoints_to_predict is not None else horizon_seq_len
+    num_trajectories_to_predict = cfg.get("debug", {}).get("num_trajectories_to_predict", None)
+    num_waypoints_to_predict = num_waypoints_to_predict if num_waypoints_to_predict is not None else "all"
 
     formatted = f"""\
     ----------------------------------------
@@ -66,6 +74,7 @@ def log_important_parameters(cfg: DictConfig, trainer: Trainer, input_seq_len: i
     Input Length:               {input_seq_len}
     Horizon Length:             {horizon_seq_len}
     Num waypoints to predict:   {num_waypoints_to_predict}
+    Num traject. to predict:    {num_trajectories_to_predict}
     """
     logger.info("\n%s", formatted)
 
