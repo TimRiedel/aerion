@@ -22,12 +22,14 @@ class AerionData(pl.LightningDataModule):
         norm_mean: torch.Tensor = None,
         norm_std: torch.Tensor = None,
         num_trajectories_to_predict: int = None,
+        num_waypoints_to_predict: int = None,
     ):
         super().__init__()
         self.dataset_cfg = dataset_cfg
         self.dataloader_cfg = dataloader_cfg
         self.processing_cfg = processing_cfg
         self.num_trajectories_to_predict = num_trajectories_to_predict
+        self.num_waypoints_to_predict = num_waypoints_to_predict
 
         # TODO: refactor this -> move ENU transforms to FlightFusion
         lat, lon = airports[self.processing_cfg.icao_code].latlon
@@ -59,6 +61,7 @@ class AerionData(pl.LightningDataModule):
                 resampling_rate_seconds=self.dataset_cfg.resampling_rate_seconds,
                 feature_cols=self.processing_cfg.feature_cols,
                 num_trajectories_to_predict=self.num_trajectories_to_predict,
+                num_waypoints_to_predict=self.num_waypoints_to_predict,
             )
 
             # Split train and validation datasets, but only if num_trajectories_to_predict is not set for debugging
@@ -87,6 +90,7 @@ class AerionData(pl.LightningDataModule):
                 resampling_rate_seconds=self.dataset_cfg.resampling_rate_seconds,
                 feature_cols=self.processing_cfg.feature_cols,
                 num_trajectories_to_predict=self.num_trajectories_to_predict,
+                num_waypoints_to_predict=self.num_waypoints_to_predict,
                 transform=self._get_transform(self.norm_mean, self.norm_std),
             )
 

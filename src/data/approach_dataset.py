@@ -14,6 +14,7 @@ class ApproachDataset(Dataset):
         resampling_rate_seconds: int,
         feature_cols: Optional[List[str]] = ["latitude", "longitude", "altitude", "groundspeed", "track"],
         num_trajectories_to_predict: int = None,
+        num_waypoints_to_predict: int = None,
         transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
     ):
         self.inputs_path = inputs_path
@@ -24,7 +25,12 @@ class ApproachDataset(Dataset):
         self.transform = transform
 
         self.input_seq_len = input_time_minutes * 60 // resampling_rate_seconds
-        self.horizon_seq_len = horizon_time_minutes * 60 // resampling_rate_seconds
+        base_horizon_seq_len = horizon_time_minutes * 60 // resampling_rate_seconds
+        
+        if num_waypoints_to_predict is not None:
+            self.horizon_seq_len = min(base_horizon_seq_len, num_waypoints_to_predict)
+        else:
+            self.horizon_seq_len = base_horizon_seq_len
 
         self.inputs_df = pd.read_parquet(inputs_path).sort_values(["flight_id", "timestamp"]).reset_index(drop=True)
         self.horizons_df = pd.read_parquet(horizons_path).sort_values(["flight_id", "timestamp"]).reset_index(drop=True)
@@ -63,8 +69,8 @@ class ApproachDataset(Dataset):
             raise IndexError(f"Index {idx} out of range for dataset of size {len(self)}")
 
         flight_id = self.flight_ids[idx]
-        input_df = self.grouped_inputs_df.get_group(flight_id)[self.feature_cols]
-        horizon_df = self.grouped_horizons_df.get_group(flight_id)[self.feature_cols]
+        input_df = self.grouped_inputs_df.get_group(flight_id)[self.feature_cols].head(self.input_seq_len)
+        horizon_df = self.grouped_horizons_df.get_group(flight_id)[self.feature_cols].head(self.horizon_seq_len)
         
         horizon_len = len(horizon_df)
         if horizon_len == 0:

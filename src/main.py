@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     trainer = Trainer(cfg["trainer"], cfg["callbacks"], cfg["wandb"])
-    log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
     log_hydra_config_to_wandb(cfg, trainer)
 
     num_trajectories_to_predict = cfg.get("debug", {}).get("num_trajectories_to_predict", None)
@@ -29,14 +28,15 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
         cfg["dataloader"],
         cfg.seed,
         num_trajectories_to_predict=num_trajectories_to_predict,
+        num_waypoints_to_predict=num_waypoints_to_predict,
     )
     model = TransformerModule(
         cfg["model"],
         cfg["optimizer"],
         input_seq_len,
         horizon_seq_len,
-        num_waypoints_to_predict=num_waypoints_to_predict,
     )
+    log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
     trainer.fit(model, data)
 
 
@@ -56,9 +56,7 @@ def log_hydra_config_to_wandb(cfg: DictConfig, trainer: Trainer) -> None:
     )
 
 def log_important_parameters(cfg: DictConfig, trainer: Trainer, input_seq_len: int, horizon_seq_len: int) -> None:
-    num_waypoints_to_predict = cfg.get("debug", {}).get("num_waypoints_to_predict", None)
     num_trajectories_to_predict = cfg.get("debug", {}).get("num_trajectories_to_predict", None)
-    num_waypoints_to_predict = num_waypoints_to_predict if num_waypoints_to_predict is not None else "all"
 
     formatted = f"""\
     ----------------------------------------
@@ -73,7 +71,6 @@ def log_important_parameters(cfg: DictConfig, trainer: Trainer, input_seq_len: i
     Dataset:                    {cfg.dataset.name}
     Input Length:               {input_seq_len}
     Horizon Length:             {horizon_seq_len}
-    Num waypoints to predict:   {num_waypoints_to_predict}
     Num traject. to predict:    {num_trajectories_to_predict}
     """
     logger.info("\n%s", formatted)
@@ -87,6 +84,11 @@ def main(cfg: DictConfig) -> None:
 
     input_seq_len = calculate_seq_len(cfg["dataset"]["input_time_minutes"], cfg["dataset"]["resampling_rate_seconds"])
     horizon_seq_len = calculate_seq_len(cfg["dataset"]["horizon_time_minutes"], cfg["dataset"]["resampling_rate_seconds"])
+    
+    # Apply num_waypoints_to_predict limit if specified
+    num_waypoints_to_predict = cfg.get("debug", {}).get("num_waypoints_to_predict", None)
+    if num_waypoints_to_predict is not None:
+        horizon_seq_len = min(horizon_seq_len, num_waypoints_to_predict)
 
     if cfg.stage == "train" or cfg.stage == "fit":
         train(cfg, input_seq_len, horizon_seq_len)
