@@ -16,7 +16,6 @@ class TransformerModule(pl.LightningModule):
         optimizer_cfg: DictConfig,
         input_seq_len: int,
         horizon_seq_len: int,
-        num_waypoints_to_predict: int = None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["datamodule"])
@@ -24,11 +23,10 @@ class TransformerModule(pl.LightningModule):
         self.optimizer_cfg = optimizer_cfg
         self.input_seq_len = input_seq_len
         self.horizon_seq_len = horizon_seq_len
-        self.num_waypoints_to_predict = num_waypoints_to_predict if num_waypoints_to_predict is not None else horizon_seq_len
 
         # Evaluation horizons
         predefined_horizons = [1, 10, 20, 40, 60, 80, 100, 120]
-        self.evaluation_horizons = [h for h in predefined_horizons if h <= self.num_waypoints_to_predict]
+        self.evaluation_horizons = [h for h in predefined_horizons if h <= self.horizon_seq_len]
         
         # Loss function
         self.criterion = nn.MSELoss(reduction="none")
@@ -44,50 +42,88 @@ class TransformerModule(pl.LightningModule):
 
 
     def on_validation_epoch_start(self):
-        H = len(self.evaluation_horizons) # Number horizons
+        H = self.horizon_seq_len          # All horizons
         F = self.model.input_dim          # Number features
 
         device = self.device
 
+        # Per-horizon accumulators
         self.val_sum_abs_error = torch.zeros(H, F, device=device)
         self.val_sum_sq_error = torch.zeros(H, F, device=device)
-        self.val_sum_distance_error = torch.zeros(H, device=device)
-        self.val_count = torch.zeros(H, device=device)
+        self.val_sum_dist_2d = torch.zeros(H, device=device)
+        self.val_sum_dist_3d = torch.zeros(H, device=device)
+        self.val_count_valid_waypoints = torch.zeros(H, device=device) # Shape: [H]
+
+        # Aggregate MDE accumulators (Max Displacement Error)
+        self.val_sum_of_max_dist_2d = torch.tensor(0.0, device=device)
+        self.val_sum_of_max_dist_3d = torch.tensor(0.0, device=device)
+        self.val_count_traj = torch.tensor(0.0, device=device) # Shape: [1]
 
 
     def on_validation_epoch_end(self):
         for tensor in [  # Needed for DDP
             self.val_sum_abs_error,
             self.val_sum_sq_error,
-            self.val_sum_distance_error,
-            self.val_count,
+            self.val_sum_dist_2d,
+            self.val_sum_dist_3d,
+            self.val_sum_of_max_dist_2d,
+            self.val_sum_of_max_dist_3d,
+            self.val_count_valid_waypoints,
+            self.val_count_traj,
         ]:
             self.trainer.strategy.reduce(tensor, reduce_op="sum")
 
-        # count.shape: [num horizons, 1]
-        count = self.val_count.clamp(min=1.0).unsqueeze(1)
-
-        # mae.shape = rmse.shape = mde.shape: [num horizons, num features]
+        # count.shape: [H, 1]
+        count = self.val_count_valid_waypoints.clamp(min=1.0).unsqueeze(1)
+        
+        # mae.shape = rmse.shape: [H, F]
         mae = self.val_sum_abs_error / count
         rmse = torch.sqrt(self.val_sum_sq_error / count)
 
-        # Reshape from (H,) to (H, 1) to match log_table_metric expectations
-        # mde.shape: [num horizons, 1]
-        val_sum_distance_error = self.val_sum_distance_error.unsqueeze(1)
-        mde = (val_sum_distance_error / count)
+        # ade.shape: [H] -> Remove feature dim for 1D tensors
+        count_1d = count.squeeze(1)
+        ade2d_seq = self.val_sum_dist_2d / count_1d
+        ade3d_seq = self.val_sum_dist_3d / count_1d
+
+        # --- Logging Plots (filtered by evaluation_horizons) ---
+        eval_indices = [h - 1 for h in self.evaluation_horizons]
+        
+        # Extract specific horizons for plotting
+        mae_plot = mae[eval_indices]
+        rmse_plot = rmse[eval_indices]
+        ade2d_plot = ade2d_seq[eval_indices].unsqueeze(1)
+        ade3d_plot = ade3d_seq[eval_indices].unsqueeze(1)
 
         for feature in ["E", "N", "Altitude", "Speed_E", "Speed_N", "Vertical_Rate"]:
-            self._log_error_vs_horizon(mae, "MAE", feature)
-            self._log_error_vs_horizon(rmse, "RMSE", feature)
+            self._log_error_vs_horizon(mae_plot, "MAE", feature)
+            self._log_error_vs_horizon(rmse_plot, "RMSE", feature)
 
-        self._log_error_vs_horizon(mde, "MDE")
+        self._log_error_vs_horizon(ade2d_plot, "ADE2D")
+        self._log_error_vs_horizon(ade3d_plot, "ADE3D")
+
+        # --- Logging Aggregates (Scalars) ---
+        total_valid_points = self.val_count_valid_waypoints.sum() # Number of valid waypoints over all horizons
+        total_trajectories = self.val_count_traj.clamp(min=1.0)
+
+        # ADE (Average of Euclidean Distance per valid waypoint)
+        ade2d_scalar = self.val_sum_dist_2d.sum() / total_valid_points
+        ade3d_scalar = self.val_sum_dist_3d.sum() / total_valid_points
+
+        # MDE (Average of Max Displacement per trajectory)
+        mde_scalar = self.val_sum_of_max_dist_2d / total_trajectories
+
+        self.log_dict({
+            "val/ADE2D": ade2d_scalar,
+            "val/ADE3D": ade3d_scalar,
+            "val/FDE": ade3d_seq[-1], # Final Displacement Error at last horizon
+            "val/MDE": mde_scalar,
+        })
 
 
     def training_step(self, batch, batch_idx):
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
-        x, y, dec_in, tgt_pad_mask = self._limit_data_to_effective_horizon(x, y, dec_in, tgt_pad_mask)
 
-        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.num_waypoints_to_predict, dtype=torch.bool).to(x.device)
+        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.horizon_seq_len, dtype=torch.bool).to(x.device)
         outputs = self.model(
             src=x,
             tgt=dec_in,
@@ -102,9 +138,8 @@ class TransformerModule(pl.LightningModule):
     
     def validation_step(self, batch: Dict[str, Any], batch_idx: int) -> torch.Tensor:
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
-        x, y, dec_in, tgt_pad_mask = self._limit_data_to_effective_horizon(x, y, dec_in, tgt_pad_mask)
 
-        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.num_waypoints_to_predict, dtype=torch.bool).to(x.device)
+        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.horizon_seq_len, dtype=torch.bool).to(x.device)
         outputs = self.model(
             src=x,
             tgt=dec_in,
@@ -115,37 +150,9 @@ class TransformerModule(pl.LightningModule):
         loss = self._compute_loss(outputs, y, tgt_pad_mask)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
 
-        denorm_predictions = self.denormalize(outputs, batched=True)
-        denorm_targets = self.denormalize(y, batched=True)
 
-        for h_idx, h in enumerate(self.evaluation_horizons):
-            t = h - 1  # horizon index
+        self.evaluation_step(outputs, y, tgt_pad_mask)
 
-            # Valid trajectories at time/horizon t (only these trajectories which are not padded at t)
-            valid_traj_at_t = ~tgt_pad_mask[:, t] 
-            if valid_traj_at_t.sum() == 0:
-                continue
-
-            # p.shape = gt.shape: [num valid trajectories at t, num features]
-            p = denorm_predictions[valid_traj_at_t, t]
-            gt = denorm_targets[valid_traj_at_t, t]
-
-            # abs_err.shape = sq_err.shape: [num valid trajectories at t, num features]
-            abs_err = torch.abs(p - gt)
-            sq_err = (p - gt) ** 2
-
-            # Feature-wise
-            # val_sum_abs_error.shape = val_sum_sq_error.shape: [num horizons, num features]
-            self.val_sum_abs_error[h_idx] += abs_err.sum(dim=0)
-            self.val_sum_sq_error[h_idx] += sq_err.sum(dim=0)
-
-            # Distance error (EN + altitude in first 3 dims)
-            # val_sum_distance_error.shape: [num horizons]
-            dist_err = torch.norm(p[:, :3] - gt[:, :3], dim=1)
-            self.val_sum_distance_error[h_idx] += dist_err.sum()
-
-            self.val_count[h_idx] += valid_traj_at_t.sum()
-        
         return loss
     
 
@@ -153,13 +160,54 @@ class TransformerModule(pl.LightningModule):
         raise NotImplementedError("Test step not implemented")
 
 
-    def _limit_data_to_effective_horizon(self, x: torch.Tensor, y: torch.Tensor, dec_in: torch.Tensor, tgt_pad_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        effective_horizon = self.num_waypoints_to_predict if self.num_waypoints_to_predict is not None else self.horizon_seq_len
-        y = y[:, :effective_horizon]
-        dec_in = dec_in[:, :effective_horizon]
-        tgt_pad_mask = tgt_pad_mask[:, :effective_horizon]
-        return x, y, dec_in, tgt_pad_mask
-    
+    def evaluation_step(self, predictions: torch.Tensor, targets: torch.Tensor, tgt_pad_mask: torch.Tensor):
+        """
+        Store metric accumulators for validation step.
+        
+        Args:
+            predictions: Model predictions [batch_size, horizon_seq_len, num_features]
+            targets: Target values [batch_size, horizon_seq_len, num_features]
+            tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+        """
+
+        denorm_predictions = self.denormalize(predictions, batched=True)
+        denorm_targets = self.denormalize(targets, batched=True)
+
+        valid_mask = ~tgt_pad_mask # [B, H]
+        
+        # 1. Feature-wise Errors [B, H, F]
+        diff = denorm_predictions - denorm_targets
+        abs_err = diff.abs()
+        sq_err = diff ** 2
+
+        # 2. Euclidean Distances [B, H]
+        dist_2d = torch.norm(diff[:, :, :2], dim=2) # Position distances (E, N)
+        dist_3d = torch.norm(diff[:, :, :3], dim=2) # Position + altitude distances
+
+        # 3. Masking
+        # Zero out invalid entries for summation
+        # Expand mask for features: [B, H] -> [B, H, 1]
+        valid_mask_unsqueezed = valid_mask.unsqueeze(-1)
+        
+        abs_err_masked = abs_err * valid_mask_unsqueezed
+        sq_err_masked = sq_err * valid_mask_unsqueezed
+        dist_2d_masked = dist_2d * valid_mask
+        dist_3d_masked = dist_3d * valid_mask
+
+        # 4. Accumulate per horizon (Sum over batch dimension)
+        self.val_sum_abs_error += abs_err_masked.sum(dim=0)
+        self.val_sum_sq_error += sq_err_masked.sum(dim=0)
+        self.val_sum_dist_2d += dist_2d_masked.sum(dim=0)
+        self.val_sum_dist_3d += dist_3d_masked.sum(dim=0)
+        self.val_count_valid_waypoints += valid_mask.sum(dim=0)
+
+        # 5. MDE (Max Displacement Error) calculation
+        traj_max_dist = dist_3d_masked.max(dim=1).values # [B]
+        has_valid_points = valid_mask.any(dim=1)         # [B]
+        self.val_sum_of_max_dist_2d += traj_max_dist[has_valid_points].sum()
+        self.val_count_traj += has_valid_points.sum()
+
+
 
     def _compute_loss(
         self,
@@ -191,13 +239,16 @@ class TransformerModule(pl.LightningModule):
             metric = metric[:, feat_idx].detach().cpu().tolist()
             name = f"{metric_name} {feature_name}"
         else:
-            feature_name = "Distance"
+            # For 1D metrics like ADE2D, ADE3D (formerly MDE) -> Input metric shape: [H, 1]
+            metric = metric.squeeze(1).detach().cpu().tolist()
             name = metric_name
 
         table = wandb.Table(columns=[name, "Horizon"])
-        for h_idx, h in enumerate(self.evaluation_horizons):
-            v = metric[h_idx]
-            table.add_data(v, h) # categorical x-axis
+        for i, val in enumerate(metric):
+            # i is index in the filtered metric list
+            # We need the corresponding horizon value from evaluation_horizons
+            h = self.evaluation_horizons[i]
+            table.add_data(val, h) # categorical x-axis
 
         fields = {"value": name, "label": "Horizon"}
         custom_chart = wandb.plot_table(
