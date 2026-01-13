@@ -94,7 +94,7 @@ class TransformerModule(pl.LightningModule):
         ade2d_plot = ade2d_seq[eval_indices].unsqueeze(1)
         ade3d_plot = ade3d_seq[eval_indices].unsqueeze(1)
 
-        for feature in ["E", "N", "Altitude", "Speed_E", "Speed_N", "Vertical_Rate"]:
+        for feature in ["X", "Y", "Altitude"]:
             self._log_error_vs_horizon(mae_plot, "MAE", feature)
             self._log_error_vs_horizon(rmse_plot, "RMSE", feature)
 
@@ -115,7 +115,7 @@ class TransformerModule(pl.LightningModule):
         self.log_dict({
             "val/ADE2D": ade2d_scalar,
             "val/ADE3D": ade3d_scalar,
-            "val/FDE": ade3d_seq[-1], # Final Displacement Error at last horizon
+            # "val/FDE": ade3d_seq[-1], # TODO: must be FDE at last horizon (without padding -> separately aggregated)
             "val/MDE": mde_scalar,
         })
 
@@ -234,7 +234,7 @@ class TransformerModule(pl.LightningModule):
 
     def _log_error_vs_horizon(self, metric: torch.Tensor, metric_name: str, feature_name: str = None):
         if feature_name is not None:
-            features = ["E", "N", "Altitude", "Speed_E", "Speed_N", "Vertical_Rate"]
+            features = ["X", "Y", "Altitude"]
             feat_idx = features.index(feature_name)
             metric = metric[:, feat_idx].detach().cpu().tolist()
             name = f"{metric_name} {feature_name}"

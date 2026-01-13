@@ -24,5 +24,4 @@ dataloader:
   batch_size: 3072
 
 data_processing:
-  icao_code: "EDDB"
-  feature_cols: ["latitude", "longitude", "altitude", "groundspeed", "track", "vertical_rate"]
+  feature_cols: ["x_coord", "y_coord", "altitude"]

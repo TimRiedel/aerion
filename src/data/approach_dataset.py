@@ -12,7 +12,7 @@ class ApproachDataset(Dataset):
         input_time_minutes: int,
         horizon_time_minutes: int,
         resampling_rate_seconds: int,
-        feature_cols: Optional[List[str]] = ["latitude", "longitude", "altitude", "groundspeed", "track"],
+        feature_cols: Optional[List[str]] = ["x_coord", "y_coord", "altitude"],
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
         transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
