@@ -3,7 +3,6 @@ import torch
 import pytorch_lightning as pl
 from torch.utils.data import Dataset, random_split
 from torchvision import transforms as T
-from traffic.data import airports
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
@@ -30,18 +29,6 @@ class AerionData(pl.LightningDataModule):
         self.processing_cfg = processing_cfg
         self.num_trajectories_to_predict = num_trajectories_to_predict
         self.num_waypoints_to_predict = num_waypoints_to_predict
-
-        # TODO: refactor this -> move ENU transforms to FlightFusion
-        lat, lon = airports[self.processing_cfg.icao_code].latlon
-        self.base_transform = T.Compose([
-            ENCoordinateTransform(
-                ref_lat=lat,
-                ref_lon=lon,
-            ),
-            VelocityTransform(
-                dt=self.dataset_cfg.resampling_rate_seconds
-            )
-        ])
 
         self.seed = seed
         self.norm_mean = norm_mean
@@ -111,8 +98,6 @@ class AerionData(pl.LightningDataModule):
         all_feat = []
         for i in range(len(dataset)):
             sample = dataset[i]
-            # Ensure stats match the feature space used during training/validation.
-            sample = self.base_transform(sample)
             all_feat.append(sample["x"])
             all_feat.append(sample["y"])
         feat_all = torch.cat(all_feat, dim=0)
@@ -123,4 +108,4 @@ class AerionData(pl.LightningDataModule):
         return mean, std
 
     def _get_transform(self, mean: torch.Tensor, std: torch.Tensor):
-        return T.Compose([self.base_transform, ZScoreNormalize(mean=mean, std=std)])
+        return T.Compose([ZScoreNormalize(mean=mean, std=std)])
