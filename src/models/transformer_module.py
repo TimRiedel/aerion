@@ -266,7 +266,7 @@ class TransformerModule(pl.LightningModule):
         optimizer = instantiate(self.optimizer_cfg, params=self.model.parameters())
         
         scheduler_cfg = self.optimizer_cfg.get('scheduler', None)
-        if scheduler_cfg is None:
+        if scheduler_cfg is None or scheduler_cfg.get('_target_', None) is None:
             return optimizer
         else:
             scheduler = instantiate(scheduler_cfg, optimizer=optimizer)
