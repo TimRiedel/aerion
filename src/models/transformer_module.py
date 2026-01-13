@@ -136,23 +136,35 @@ class TransformerModule(pl.LightningModule):
         
         return loss
     
-    def validation_step(self, batch: Dict[str, Any], batch_idx: int) -> torch.Tensor:
+    def validation_step(self, batch, batch_idx):
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
+        
+        # 1. Encode once
+        memory = self.model.encode(x) # Shape: [Batch, Max_Input_Len, d_model]
 
-        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.horizon_seq_len, dtype=torch.bool).to(x.device)
-        outputs = self.model(
-            src=x,
-            tgt=dec_in,
-            tgt_mask=causal_mask,
-            tgt_pad_mask=tgt_pad_mask 
-        )
+        # 2. Initialize: Start with the first token of dec_in
+        current_input = dec_in[:, 0:1, :] # Shape: [Batch, 1, Input_Dim]
+        all_predictions = []
 
-        loss = self._compute_loss(outputs, y, tgt_pad_mask)
+        # 3. Autoregressive loop
+        for i in range(self.horizon_seq_len):
+            # Generate mask for the current sequence length i+1
+            current_seq_len = current_input.size(1)
+            tgt_mask = self.model.transformer.generate_square_subsequent_mask(
+                current_seq_len, dtype=torch.bool, device=x.device
+            )
+
+            output = self.model.decode(current_input, memory, tgt_mask=tgt_mask)
+            next_step_pred = output[:, -1:, :]
+            current_input = torch.cat([current_input, next_step_pred], dim=1)
+
+            all_predictions.append(next_step_pred)
+
+
+        predictions = torch.cat(all_predictions, dim=1)
+        loss = self._compute_loss(predictions, y, tgt_pad_mask)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
-
-
-        self.evaluation_step(outputs, y, tgt_pad_mask)
-
+        self.evaluation_step(predictions, y, tgt_pad_mask)
         return loss
     
 
@@ -206,7 +218,6 @@ class TransformerModule(pl.LightningModule):
         has_valid_points = valid_mask.any(dim=1)         # [B]
         self.val_sum_of_max_dist_2d += traj_max_dist[has_valid_points].sum()
         self.val_count_traj += has_valid_points.sum()
-
 
 
     def _compute_loss(

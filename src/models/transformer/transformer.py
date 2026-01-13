@@ -79,21 +79,25 @@ class TrajectoryTransformer(nn.Module):
         
         # Output projection: map back to feature space
         self.output_projection = nn.Linear(d_model, input_dim)
-        
-    def forward(self, src, tgt, tgt_mask=None, tgt_pad_mask=None):
-        src_emb = self.src_embedding(src)
-        tgt_emb = self.tgt_embedding(tgt)
 
+    def encode(self, src: torch.Tensor):
+        src_emb = self.src_embedding(src)
         src_emb = self.src_pos_encoding(src_emb)
+        return self.transformer.encoder(src_emb)
+
+    def decode(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask: Optional[torch.Tensor] = None):
+        tgt_emb = self.tgt_embedding(tgt)
         tgt_emb = self.tgt_pos_encoding(tgt_emb)
         
-        # Transformer pass
-        output = self.transformer(
-            src=src_emb, 
+        output = self.transformer.decoder(
             tgt=tgt_emb, 
-            tgt_mask=tgt_mask,
-            tgt_key_padding_mask=tgt_pad_mask
+            memory=memory, 
+            tgt_mask=tgt_mask
         )
-        
         return self.output_projection(output)
+        
+    def forward(self, src, tgt, tgt_mask=None, tgt_pad_mask=None):
+        memory = self.encode(src)
+        output = self.decode(tgt, memory, tgt_mask=tgt_mask)
+        return output
 
