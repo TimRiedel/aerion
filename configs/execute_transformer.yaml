@@ -28,3 +28,6 @@ dataloader:
 
 data_processing:
   feature_cols: ["x_coord", "y_coord", "altitude"]
+  noise_std_x: 2000.0
+  noise_std_y: 2000.0
+  noise_std_altitude: 400.0

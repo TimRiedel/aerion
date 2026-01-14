@@ -60,7 +60,6 @@ class AerionData(pl.LightningDataModule):
             else:
                 train_ds = val_ds = full_train_ds
 
-            # Normalization transforms
             self.norm_mean, self.norm_std = self._compute_feature_stats(train_ds)
             full_train_ds.transform = self._get_transform(self.norm_mean, self.norm_std) # Important: set transform on full train dataset, not on subsets
             self.train_ds, self.val_ds = train_ds, val_ds
@@ -108,4 +107,10 @@ class AerionData(pl.LightningDataModule):
         return mean, std
 
     def _get_transform(self, mean: torch.Tensor, std: torch.Tensor):
-        return T.Compose([ZScoreNormalize(mean=mean, std=std)])
+        noise_std_x = self.processing_cfg.noise_std_x
+        noise_std_y = self.processing_cfg.noise_std_y
+        noise_std_altitude = self.processing_cfg.noise_std_altitude
+        return T.Compose([
+            DecoderInputNoise(noise_std=torch.tensor([noise_std_x, noise_std_y, noise_std_altitude])),
+            ZScoreNormalize(mean=mean, std=std),
+        ])
