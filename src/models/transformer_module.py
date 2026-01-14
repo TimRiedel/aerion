@@ -126,15 +126,9 @@ class TransformerModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
 
-        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.horizon_seq_len, dtype=torch.bool).to(x.device)
-        outputs = self.model(
-            src=x,
-            tgt=dec_in,
-            tgt_mask=causal_mask,
-            tgt_pad_mask=tgt_pad_mask 
-        )
-
-        loss = self._compute_loss(outputs, y, tgt_pad_mask)
+        predictions = self._predict_teacher_forcing(x, dec_in, tgt_pad_mask)
+            
+        loss = self._compute_loss(predictions, y, tgt_pad_mask)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
         
         return loss
@@ -142,6 +136,29 @@ class TransformerModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
         
+        predictions = self._predict_autoregressively(x, dec_in, tgt_pad_mask)
+        loss = self._compute_loss(predictions, y, tgt_pad_mask)
+        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
+        self._evaluate_step(predictions, y, tgt_pad_mask)
+        return loss
+    
+
+    def test_step(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
+        raise NotImplementedError("Test step not implemented")
+
+
+    def _predict_teacher_forcing(self, x: torch.Tensor, dec_in: torch.Tensor, tgt_pad_mask: torch.Tensor) -> torch.Tensor:
+        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.horizon_seq_len, dtype=torch.bool).to(x.device)
+        predictions = self.model(
+            src=x,
+            tgt=dec_in,
+            tgt_mask=causal_mask,
+            tgt_pad_mask=tgt_pad_mask 
+        )
+        return predictions
+
+    
+    def _predict_autoregressively(self, x: torch.Tensor, dec_in: torch.Tensor, tgt_pad_mask: torch.Tensor) -> torch.Tensor:
         # 1. Encode once
         memory = self.model.encode(x) # Shape: [Batch, Max_Input_Len, d_model]
 
@@ -165,17 +182,10 @@ class TransformerModule(pl.LightningModule):
 
 
         predictions = torch.cat(all_predictions, dim=1)
-        loss = self._compute_loss(predictions, y, tgt_pad_mask)
-        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
-        self.evaluation_step(predictions, y, tgt_pad_mask)
-        return loss
-    
-
-    def test_step(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
-        raise NotImplementedError("Test step not implemented")
+        return predictions
 
 
-    def evaluation_step(self, predictions: torch.Tensor, targets: torch.Tensor, tgt_pad_mask: torch.Tensor):
+    def _evaluate_step(self, predictions: torch.Tensor, targets: torch.Tensor, tgt_pad_mask: torch.Tensor):
         """
         Store metric accumulators for validation step.
         
@@ -253,16 +263,14 @@ class TransformerModule(pl.LightningModule):
             metric = metric[:, feat_idx].detach().cpu().tolist()
             name = f"{metric_name} {feature_name}"
         else:
-            # For 1D metrics like ADE2D, ADE3D (formerly MDE) -> Input metric shape: [H, 1]
+            # For 1D metrics like ADE2D, ADE3D -> Input metric shape: [H, 1]
             metric = metric.squeeze(1).detach().cpu().tolist()
             name = metric_name
 
         table = wandb.Table(columns=[name, "Horizon"])
         for i, val in enumerate(metric):
-            # i is index in the filtered metric list
-            # We need the corresponding horizon value from evaluation_horizons
             h = self.evaluation_horizons[i]
-            table.add_data(val, h) # categorical x-axis
+            table.add_data(val, h)
 
         fields = {"value": name, "label": "Horizon"}
         custom_chart = wandb.plot_table(
