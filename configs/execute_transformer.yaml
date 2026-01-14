@@ -20,6 +20,9 @@ optimizer:
   _target_: torch.optim.AdamW
   lr: 1e-4
 
+scheduler:
+  warmup_epochs: 5
+
 dataloader:
   batch_size: 3072
 

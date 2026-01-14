@@ -35,6 +35,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
         cfg["optimizer"],
         input_seq_len,
         horizon_seq_len,
+        cfg.get("scheduler", None),
     )
     log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
     trainer.fit(model, data)

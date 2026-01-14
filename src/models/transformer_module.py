@@ -1,7 +1,8 @@
 import wandb
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import pytorch_lightning as pl
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from typing import Any, Dict, Tuple
 from omegaconf import DictConfig
 from hydra.utils import instantiate
@@ -16,11 +17,13 @@ class TransformerModule(pl.LightningModule):
         optimizer_cfg: DictConfig,
         input_seq_len: int,
         horizon_seq_len: int,
+        scheduler_cfg: DictConfig = None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["datamodule"])
         self.model = instantiate(model_cfg["params"])
         self.optimizer_cfg = optimizer_cfg
+        self.scheduler_cfg = scheduler_cfg
         self.input_seq_len = input_seq_len
         self.horizon_seq_len = horizon_seq_len
 
@@ -276,12 +279,28 @@ class TransformerModule(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = instantiate(self.optimizer_cfg, params=self.model.parameters())
         
-        scheduler_cfg = self.optimizer_cfg.get('scheduler', None)
-        if scheduler_cfg is None or scheduler_cfg.get('_target_', None) is None:
+        if self.scheduler_cfg is None:
             return optimizer
         else:
-            scheduler = instantiate(scheduler_cfg, optimizer=optimizer)
+            steps_per_epoch = len(self.trainer.datamodule.train_dataloader())
+            warmup_epochs = self.scheduler_cfg.get('warmup_epochs', 0)
+            
+            warmup_steps = steps_per_epoch * warmup_epochs
+            total_steps = steps_per_epoch * self.trainer.max_epochs
+
+            scheduler = SequentialLR(
+                optimizer,
+                schedulers=[
+                    LinearLR(optimizer, start_factor=1e-6, total_iters=warmup_steps),
+                    CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps),
+                ],
+                milestones=[warmup_steps],
+            )
             return {
                 "optimizer": optimizer,
-                "lr_scheduler": scheduler
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "step",
+                    "frequency": 1
+                }
             }
