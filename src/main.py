@@ -91,6 +91,10 @@ def main(cfg: DictConfig) -> None:
     if num_waypoints_to_predict is not None:
         horizon_seq_len = min(horizon_seq_len, num_waypoints_to_predict)
 
+    # Add model and dataset tags as default to wandb tags
+    cfg["wandb"]["tags"].append(cfg["model"]["name"])
+    cfg["wandb"]["tags"].append(cfg["dataset"]["name"])
+
     if cfg.stage == "train" or cfg.stage == "fit":
         train(cfg, input_seq_len, horizon_seq_len)
     elif cfg.stage == "test":

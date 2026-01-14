@@ -70,7 +70,7 @@ wandb:
   _target_: pytorch_lightning.loggers.WandbLogger
   project: "Approach Prediction"
   name: ${experiment_name}
-  # tags: ${model.name}, ${dataset.name}
+  tags: []
 
 # --------------------------------------
 # Hydra configuration
