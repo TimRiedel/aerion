@@ -13,7 +13,7 @@ experiment_name: "unconfigured_experiment"
 stage: "train"
 seed: 42
 load_checkpoint_path: null # Only used for prediction and evaluation
-debug:
+execution:
   num_waypoints_to_predict: null
   num_trajectories_to_predict: null
 
@@ -46,7 +46,7 @@ callbacks:
 # --------------------------------------
 dataloader:
   _target_: torch.utils.data.DataLoader
-  batch_size: 1024
+  batch_size: 3072
   num_workers: 4
   pin_memory: true
   shuffle: true

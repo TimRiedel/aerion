@@ -19,8 +19,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     trainer = Trainer(cfg["trainer"], cfg["callbacks"], cfg["wandb"])
     log_hydra_config_to_wandb(cfg, trainer)
 
-    num_trajectories_to_predict = cfg.get("debug", {}).get("num_trajectories_to_predict", None)
-    num_waypoints_to_predict = cfg.get("debug", {}).get("num_waypoints_to_predict", None)
+    num_trajectories_to_predict = cfg.get("execution", {}).get("num_trajectories_to_predict", None)
 
     data = AerionData(
         cfg["dataset"],
@@ -28,14 +27,14 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
         cfg["dataloader"],
         cfg.seed,
         num_trajectories_to_predict=num_trajectories_to_predict,
-        num_waypoints_to_predict=num_waypoints_to_predict,
+        num_waypoints_to_predict=horizon_seq_len,
     )
     model = TransformerModule(
         cfg["model"],
         cfg["optimizer"],
         input_seq_len,
         horizon_seq_len,
-        cfg.get("scheduler", None),
+        scheduler_cfg=cfg.get("scheduler", None),
     )
     log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
     trainer.fit(model, data)
@@ -65,9 +64,10 @@ def log_important_parameters(cfg: DictConfig, trainer: Trainer, input_seq_len: i
     ----------------------------------------
     Model name:                 {cfg.model.name}
     Batch size:                 {cfg.dataloader.batch_size}
+    Max Epochs:                 {cfg.trainer.max_epochs}
     Learning rate:              {cfg.optimizer.lr}
     Weight Decay:               {cfg.optimizer.weight_decay}
-    Max Epochs:                 {cfg.trainer.max_epochs}
+    Dropout:                    {cfg.model.params.dropout}
 
     Dataset:                    {cfg.dataset.name}
     Input Length:               {input_seq_len}
@@ -87,7 +87,7 @@ def main(cfg: DictConfig) -> None:
     horizon_seq_len = calculate_seq_len(cfg["dataset"]["horizon_time_minutes"], cfg["dataset"]["resampling_rate_seconds"])
     
     # Apply num_waypoints_to_predict limit if specified
-    num_waypoints_to_predict = cfg.get("debug", {}).get("num_waypoints_to_predict", None)
+    num_waypoints_to_predict = cfg.get("execution", {}).get("num_waypoints_to_predict", None)
     if num_waypoints_to_predict is not None:
         horizon_seq_len = min(horizon_seq_len, num_waypoints_to_predict)
 
