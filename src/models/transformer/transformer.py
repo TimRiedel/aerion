@@ -39,7 +39,8 @@ class TrajectoryTransformer(nn.Module):
     
     def __init__(
         self,
-        input_dim: int,
+        encoder_input_dim: int = 6,
+        decoder_input_dim: int = 3,
         d_model: int = 128,
         nhead: int = 8,
         num_encoder_layers: int = 4,
@@ -52,15 +53,16 @@ class TrajectoryTransformer(nn.Module):
     ):
         super().__init__()
         
-        self.input_dim = input_dim
+        self.encoder_input_dim = encoder_input_dim
+        self.decoder_input_dim = decoder_input_dim
         self.d_model = d_model
         self.nhead = nhead
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
         
         # Input embedding: map features to d_model dimension
-        self.src_embedding = nn.Linear(input_dim, d_model)
-        self.tgt_embedding = nn.Linear(input_dim, d_model)
+        self.src_embedding = nn.Linear(encoder_input_dim, d_model)
+        self.tgt_embedding = nn.Linear(decoder_input_dim, d_model)
         
         # Positional encoding
         self.src_pos_encoding = PositionalEncoding(d_model, max_len=max_input_len, dropout=dropout)
@@ -77,8 +79,8 @@ class TrajectoryTransformer(nn.Module):
             batch_first=batch_first,
         )
         
-        # Output projection: map back to feature space
-        self.output_projection = nn.Linear(d_model, input_dim)
+        # Output projection: map back to decoder feature space
+        self.output_projection = nn.Linear(d_model, decoder_input_dim)
 
     def encode(self, src: torch.Tensor):
         src_emb = self.src_embedding(src)

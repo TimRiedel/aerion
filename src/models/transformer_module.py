@@ -38,15 +38,16 @@ class TransformerModule(pl.LightningModule):
     def on_fit_start(self):
         dm = self.trainer.datamodule
 
-        self.register_buffer("norm_mean", dm.norm_mean)
-        self.register_buffer("norm_std", dm.norm_std)
+        # Store delta stats for denormalization (used to reconstruct absolute positions)
+        self.register_buffer("delta_mean", dm.delta_mean)
+        self.register_buffer("delta_std", dm.delta_std)
 
-        self.denormalize = ZScoreDenormalize(dm.norm_mean, dm.norm_std)
+        self.denormalize_delta = ZScoreDenormalize(dm.delta_mean, dm.delta_std)
 
 
     def on_validation_epoch_start(self):
         H = self.horizon_seq_len          # All horizons
-        F = self.model.input_dim          # Number features
+        F = self.model.decoder_input_dim  # Number features
 
         device = self.device
 
@@ -135,11 +136,12 @@ class TransformerModule(pl.LightningModule):
     
     def validation_step(self, batch, batch_idx):
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
+        last_position = batch["last_position"]  # [B, 3] for reconstructing absolute positions
         
         predictions = self._predict_autoregressively(x, dec_in, tgt_pad_mask)
         loss = self._compute_loss(predictions, y, tgt_pad_mask)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
-        self._evaluate_step(predictions, y, tgt_pad_mask)
+        self._evaluate_step(predictions, y, tgt_pad_mask, last_position)
         return loss
     
 
@@ -185,29 +187,43 @@ class TransformerModule(pl.LightningModule):
         return predictions
 
 
-    def _evaluate_step(self, predictions: torch.Tensor, targets: torch.Tensor, tgt_pad_mask: torch.Tensor):
+    def _evaluate_step(
+        self, 
+        predictions: torch.Tensor, 
+        targets: torch.Tensor, 
+        tgt_pad_mask: torch.Tensor,
+        last_position: torch.Tensor
+    ):
         """
         Store metric accumulators for validation step.
         
+        Reconstructs absolute positions from deltas and computes metrics.
+        
         Args:
-            predictions: Model predictions [batch_size, horizon_seq_len, num_features]
-            targets: Target values [batch_size, horizon_seq_len, num_features]
+            predictions: Model predictions (deltas) [batch_size, horizon_seq_len, 3]
+            targets: Target values (deltas) [batch_size, horizon_seq_len, 3]
             tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            last_position: Last absolute position from input sequence [batch_size, 3]
         """
+        # Denormalize deltas
+        pred_delta = self.denormalize_delta(predictions, batched=True)  # [B, H, 3]
+        tgt_delta = self.denormalize_delta(targets, batched=True)       # [B, H, 3]
 
-        denorm_predictions = self.denormalize(predictions, batched=True)
-        denorm_targets = self.denormalize(targets, batched=True)
+        # Reconstruct absolute positions via cumulative sum of deltas
+        # pred_abs[t] = last_position + sum(pred_delta[0:t+1])
+        pred_abs = last_position.unsqueeze(1) + pred_delta.cumsum(dim=1)  # [B, H, 3]
+        tgt_abs = last_position.unsqueeze(1) + tgt_delta.cumsum(dim=1)    # [B, H, 3]
 
         valid_mask = ~tgt_pad_mask # [B, H]
         
-        # 1. Feature-wise Errors [B, H, F]
-        diff = denorm_predictions - denorm_targets
+        # 1. Feature-wise Errors on absolute positions [B, H, F]
+        diff = pred_abs - tgt_abs
         abs_err = diff.abs()
         sq_err = diff ** 2
 
         # 2. Euclidean Distances [B, H]
-        dist_2d = torch.norm(diff[:, :, :2], dim=2) # Position distances (E, N)
-        dist_3d = torch.norm(diff[:, :, :3], dim=2) # Position + altitude distances
+        dist_2d = torch.norm(diff[:, :, :2], dim=2)  # Position distances (X, Y)
+        dist_3d = torch.norm(diff[:, :, :3], dim=2)  # Position + altitude distances
 
         # 3. Masking
         # Zero out invalid entries for summation

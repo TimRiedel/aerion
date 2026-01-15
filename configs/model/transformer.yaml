@@ -3,7 +3,8 @@ params:
   _target_: models.transformer.transformer.TrajectoryTransformer
   batch_first: true
 
-  input_dim: 3
+  encoder_input_dim: 6  # absolute positions + deltas (x, y, alt, dx, dy, dalt)
+  decoder_input_dim: 3  # deltas only (dx, dy, dalt)
   d_model: 128
   nhead: 8
   num_encoder_layers: 6
