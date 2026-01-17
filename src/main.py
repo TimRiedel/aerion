@@ -20,6 +20,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     log_hydra_config_to_wandb(cfg, trainer)
 
     num_trajectories_to_predict = cfg.get("execution", {}).get("num_trajectories_to_predict", None)
+    num_visualized_traj = cfg.get("execution", {}).get("num_visualized_traj", 10)
 
     data = AerionData(
         cfg["dataset"],
@@ -35,6 +36,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
         input_seq_len,
         horizon_seq_len,
         scheduler_cfg=cfg.get("scheduler", None),
+        num_visualized_traj=num_visualized_traj
     )
     log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
     trainer.fit(model, data)

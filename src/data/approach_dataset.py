@@ -98,7 +98,6 @@ class ApproachDataset(Dataset):
             "x": x,                      # [T_in, 6] positions + deltas
             "y": y,                      # [H, 3] target deltas
             "dec_in": dec_in,            # [H, 3] decoder input deltas
-            "last_position": last_position,  # [3] for reconstruction
             "mask": mask,
             "flight_id": flight_id
         }

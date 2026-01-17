@@ -16,6 +16,7 @@ load_checkpoint_path: null # Only used for prediction and evaluation
 execution:
   num_waypoints_to_predict: null
   num_trajectories_to_predict: null
+  num_visualized_traj: 20
 
 # --------------------------------------
 # Callbacks

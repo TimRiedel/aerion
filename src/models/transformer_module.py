@@ -1,3 +1,4 @@
+from visualization.predictions_targets import plot_predictions_targets
 import wandb
 import pytorch_lightning as pl
 import torch
@@ -18,6 +19,7 @@ class TransformerModule(pl.LightningModule):
         input_seq_len: int,
         horizon_seq_len: int,
         scheduler_cfg: DictConfig = None,
+        num_visualized_traj: int = 10,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["datamodule"])
@@ -30,6 +32,7 @@ class TransformerModule(pl.LightningModule):
         # Evaluation horizons
         predefined_horizons = [1, 10, 20, 40, 60, 80, 100, 120]
         self.evaluation_horizons = [h for h in predefined_horizons if h <= self.horizon_seq_len]
+        self.num_visualized_traj = num_visualized_traj
         
         # Loss function
         self.criterion = nn.MSELoss(reduction="none")
@@ -38,11 +41,16 @@ class TransformerModule(pl.LightningModule):
     def on_fit_start(self):
         dm = self.trainer.datamodule
 
-        # Store delta stats for denormalization (used to reconstruct absolute positions)
+        # Store stats for denormalization
+        self.register_buffer("pos_mean", dm.pos_mean)
+        self.register_buffer("pos_std", dm.pos_std)
         self.register_buffer("delta_mean", dm.delta_mean)
         self.register_buffer("delta_std", dm.delta_std)
 
-        self.denormalize_delta = ZScoreDenormalize(dm.delta_mean, dm.delta_std)
+        input_mean = torch.cat([dm.pos_mean, dm.delta_mean], dim=0)
+        input_std = torch.cat([dm.pos_std, dm.delta_std], dim=0)
+        self.denormalize_inputs = ZScoreDenormalize(input_mean, input_std) # Inputs are positions and deltas [6]
+        self.denormalize_targets = ZScoreDenormalize(dm.delta_mean, dm.delta_std) # Targets and decoder input are pure deltas [3]
 
 
     def on_validation_epoch_start(self):
@@ -136,12 +144,14 @@ class TransformerModule(pl.LightningModule):
     
     def validation_step(self, batch, batch_idx):
         x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
-        last_position = batch["last_position"]  # [B, 3] for reconstructing absolute positions
         
         predictions = self._predict_autoregressively(x, dec_in, tgt_pad_mask)
         loss = self._compute_loss(predictions, y, tgt_pad_mask)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
-        self._evaluate_step(predictions, y, tgt_pad_mask, last_position)
+
+        input_abs, tgt_abs, pred_abs = self._reconstruct_absolute_positions(x, y, predictions, tgt_pad_mask)
+        self._evaluate_step(pred_abs, tgt_abs, tgt_pad_mask)
+        self._visualize_prediction_vs_targets(input_abs, tgt_abs, pred_abs, tgt_pad_mask, batch_idx)
         return loss
     
 
@@ -186,13 +196,23 @@ class TransformerModule(pl.LightningModule):
         predictions = torch.cat(all_predictions, dim=1)
         return predictions
 
+    def _reconstruct_absolute_positions(self, x: torch.Tensor, y: torch.Tensor, predictions: torch.Tensor, tgt_pad_mask: torch.Tensor) -> torch.Tensor:
+        input_abs = self.denormalize_inputs(x)
+        target_deltas = self.denormalize_targets(y)
+        predictions_deltas = self.denormalize_targets(predictions)
 
+        last_position_abs = input_abs[:,-1,:3].unsqueeze(1)
+        target_abs = last_position_abs + target_deltas.cumsum(dim=1)
+        predictions_abs = last_position_abs + predictions_deltas.cumsum(dim=1)
+
+        return input_abs, target_abs, predictions_abs
+
+        
     def _evaluate_step(
         self, 
-        predictions: torch.Tensor, 
-        targets: torch.Tensor, 
+        pred_abs: torch.Tensor, 
+        tgt_abs: torch.Tensor, 
         tgt_pad_mask: torch.Tensor,
-        last_position: torch.Tensor
     ):
         """
         Store metric accumulators for validation step.
@@ -200,20 +220,10 @@ class TransformerModule(pl.LightningModule):
         Reconstructs absolute positions from deltas and computes metrics.
         
         Args:
-            predictions: Model predictions (deltas) [batch_size, horizon_seq_len, 3]
-            targets: Target values (deltas) [batch_size, horizon_seq_len, 3]
+            pred_abs: Model predictions (absolute positions) [batch_size, horizon_seq_len, 3]
+            tgt_abs: Target values (absolute positions) [batch_size, horizon_seq_len, 3]
             tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
-            last_position: Last absolute position from input sequence [batch_size, 3]
         """
-        # Denormalize deltas
-        pred_delta = self.denormalize_delta(predictions, batched=True)  # [B, H, 3]
-        tgt_delta = self.denormalize_delta(targets, batched=True)       # [B, H, 3]
-
-        # Reconstruct absolute positions via cumulative sum of deltas
-        # pred_abs[t] = last_position + sum(pred_delta[0:t+1])
-        pred_abs = last_position.unsqueeze(1) + pred_delta.cumsum(dim=1)  # [B, H, 3]
-        tgt_abs = last_position.unsqueeze(1) + tgt_delta.cumsum(dim=1)    # [B, H, 3]
-
         valid_mask = ~tgt_pad_mask # [B, H]
         
         # 1. Feature-wise Errors on absolute positions [B, H, F]
@@ -247,6 +257,33 @@ class TransformerModule(pl.LightningModule):
         has_valid_points = valid_mask.any(dim=1)         # [B]
         self.val_sum_of_max_dist_2d += traj_max_dist[has_valid_points].sum()
         self.val_count_traj += has_valid_points.sum()
+
+
+    def _visualize_prediction_vs_targets(self, in_abs: torch.Tensor, tgt_abs: torch.Tensor, pred_abs: torch.Tensor, tgt_pad_mask: torch.Tensor, batch_idx: int):
+        """
+        Visualize the prediction vs targets for the first num_visualized_traj trajectories in batch index 0.
+
+        Args:
+            in_abs: Input absolute positions [batch_size, horizon_seq_len, 3]
+            tgt_abs: Target absolute positions [batch_size, horizon_seq_len, 3]
+            pred_abs: Predicted absolute positions [batch_size, horizon_seq_len, 3]
+            tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            batch_idx: Batch index
+        """
+        if batch_idx != 0:
+            return
+
+        for i in range(self.num_visualized_traj):
+            in_abs_i = in_abs[i].detach().cpu().float().numpy()
+            tgt_abs_i = tgt_abs[i].detach().cpu().float().numpy()
+            pred_abs_i = pred_abs[i].detach().cpu().float().numpy()
+            tgt_pad_mask_i = tgt_pad_mask[i].detach().cpu().numpy()
+
+            fig, ax = plot_predictions_targets(in_abs_i, tgt_abs_i, pred_abs_i, tgt_pad_mask_i, "EDDB")
+            self.logger.experiment.log({
+                f"val-predictions-targets/batch_{batch_idx}_traj_{i}": wandb.Image(fig)
+            })
+            
 
 
     def _compute_loss(
