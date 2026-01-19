@@ -12,7 +12,9 @@ class ApproachDataset(Dataset):
         input_time_minutes: int,
         horizon_time_minutes: int,
         resampling_rate_seconds: int,
-        feature_cols: Optional[List[str]] = ["latitude", "longitude", "altitude", "groundspeed", "track"],
+        feature_cols: Optional[List[str]] = ["x_coord", "y_coord", "altitude"],
+        num_trajectories_to_predict: int = None,
+        num_waypoints_to_predict: int = None,
         transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
     ):
         self.inputs_path = inputs_path
@@ -23,7 +25,12 @@ class ApproachDataset(Dataset):
         self.transform = transform
 
         self.input_seq_len = input_time_minutes * 60 // resampling_rate_seconds
-        self.horizon_seq_len = horizon_time_minutes * 60 // resampling_rate_seconds
+        base_horizon_seq_len = horizon_time_minutes * 60 // resampling_rate_seconds
+        
+        if num_waypoints_to_predict is not None:
+            self.horizon_seq_len = min(base_horizon_seq_len, num_waypoints_to_predict)
+        else:
+            self.horizon_seq_len = base_horizon_seq_len
 
         self.inputs_df = pd.read_parquet(inputs_path).sort_values(["flight_id", "timestamp"]).reset_index(drop=True)
         self.horizons_df = pd.read_parquet(horizons_path).sort_values(["flight_id", "timestamp"]).reset_index(drop=True)
@@ -32,7 +39,10 @@ class ApproachDataset(Dataset):
 
         self._validate_feature_cols(feature_cols)
         self.feature_cols = feature_cols
+
         self.flight_ids = sorted(self.inputs_df["flight_id"].unique().tolist())
+        if num_trajectories_to_predict is not None:
+            self.flight_ids = self.flight_ids[:num_trajectories_to_predict]
         self.size = len(self.flight_ids)
 
     def _validate_feature_cols(self, feature_cols: List[str]) -> None:
@@ -59,25 +69,35 @@ class ApproachDataset(Dataset):
             raise IndexError(f"Index {idx} out of range for dataset of size {len(self)}")
 
         flight_id = self.flight_ids[idx]
-        input_df = self.grouped_inputs_df.get_group(flight_id)[self.feature_cols]
-        horizon_df = self.grouped_horizons_df.get_group(flight_id)[self.feature_cols]
+        input_df = self.grouped_inputs_df.get_group(flight_id)[self.feature_cols].head(self.input_seq_len)
+        horizon_df = self.grouped_horizons_df.get_group(flight_id)[self.feature_cols].head(self.horizon_seq_len)
         
         horizon_len = len(horizon_df)
         if horizon_len == 0:
             raise ValueError(f"No horizon data found for flight {flight_id}")
 
-        x = torch.from_numpy(input_df.astype("float32").values)
-        y = torch.from_numpy(horizon_df.astype("float32").values)
-        current_position = x[-1:]
-        # y_in is y shifted by one to the right (including current position) 
-        dec_in = torch.cat([current_position, y[:-1]], dim=0) 
+        x_pos = torch.from_numpy(input_df.astype("float32").values) # [T_in, 3]
+        x_delta_computed = torch.diff(x_pos, dim=0)  # [T_in-1, 3]
+        x_delta = torch.cat([x_delta_computed[0:1], x_delta_computed], dim=0)  # [T_in, 3] -> backfilled first delta
+        x = torch.cat([x_pos, x_delta], dim=1) # [T_in, 6]
+        
+        y_pos = torch.from_numpy(horizon_df.astype("float32").values)
+        last_position = x_pos[-1]  # [3]
+        
+        # Target: deltas between consecutive horizon positions [H, 3]
+        y_delta_ref = torch.cat([last_position.unsqueeze(0), y_pos[:-1]], dim=0)
+        y = y_pos - y_delta_ref  # [H, 3]
+        
+        # Decoder input: shifted deltas [H, 3]
+        last_observed_delta = x_delta[-1]  # [3]
+        dec_in = torch.cat([last_observed_delta.unsqueeze(0), y[:-1]], dim=0)  # [H, 3]
 
         y, dec_in, mask = self._pad_horizons(y, dec_in, horizon_len)
 
         sample = {
-            "x": x,
-            "y": y,
-            "dec_in": dec_in,
+            "x": x,                      # [T_in, 6] positions + deltas
+            "y": y,                      # [H, 3] target deltas
+            "dec_in": dec_in,            # [H, 3] decoder input deltas
             "mask": mask,
             "flight_id": flight_id
         }
