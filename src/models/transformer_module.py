@@ -28,9 +28,8 @@ class TransformerModule(pl.LightningModule):
         self.scheduler_cfg = scheduler_cfg
         self.input_seq_len = input_seq_len
         self.horizon_seq_len = horizon_seq_len
-
         # Evaluation horizons
-        predefined_horizons = [1, 10, 20, 40, 60, 80, 100, 120]
+        predefined_horizons = [1, 3, 6, 15, 30, 45, 60, 75, 90, 105, 120]
         self.evaluation_horizons = [h for h in predefined_horizons if h <= self.horizon_seq_len]
         self.num_visualized_traj = num_visualized_traj
         
