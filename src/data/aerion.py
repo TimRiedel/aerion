@@ -105,17 +105,17 @@ class AerionData(pl.LightningDataModule):
             delta_mean: Mean of all deltas (input + output) [3]
             delta_std: Std of all deltas (input + output) [3]
         """
-        all_pos = []    # For position stats (from x[:, :3])
-        all_delta = []  # For delta stats (from x[:, 3:6] and y)
+        all_pos = []    # For position stats (from input_traj[:, :3])
+        all_delta = []  # For delta stats (from input_traj[:, 3:6] and target_traj)
         
         for i in range(len(dataset)):
             sample = dataset[i]
-            x = sample["x"]  # [T_in, 6] - positions + deltas
-            y = sample["y"]  # [H, 3] - target deltas
+            input_traj = sample["input_traj"]  # [T_in, 6] - positions + deltas
+            target_traj = sample["target_traj"]  # [H, 3] - target deltas
             
-            all_pos.append(x[:, :3])      # Absolute positions from input
-            all_delta.append(x[:, 3:6])   # Deltas from input sequence
-            all_delta.append(y)           # Deltas from target sequence
+            all_pos.append(input_traj[:, :3])      # Absolute positions from input
+            all_delta.append(input_traj[:, 3:6])   # Deltas from input sequence
+            all_delta.append(target_traj)           # Deltas from target sequence
         
         # Position stats
         pos_all = torch.cat(all_pos, dim=0)

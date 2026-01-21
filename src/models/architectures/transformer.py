@@ -60,15 +60,12 @@ class TrajectoryTransformer(nn.Module):
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
         
-        # Input embedding: map features to d_model dimension
-        self.src_embedding = nn.Linear(encoder_input_dim, d_model)
-        self.tgt_embedding = nn.Linear(decoder_input_dim, d_model)
+        self.input_embedding = nn.Linear(encoder_input_dim, d_model)
+        self.input_pos_encoding = PositionalEncoding(d_model, max_len=max_input_len, dropout=dropout)
         
-        # Positional encoding
-        self.src_pos_encoding = PositionalEncoding(d_model, max_len=max_input_len, dropout=dropout)
-        self.tgt_pos_encoding = PositionalEncoding(d_model, max_len=max_output_len, dropout=dropout)
+        self.dec_in_embedding = nn.Linear(decoder_input_dim, d_model)
+        self.dec_in_pos_encoding = PositionalEncoding(d_model, max_len=max_output_len, dropout=dropout)
         
-        # Transformer encoder-decoder
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead,
@@ -79,27 +76,26 @@ class TrajectoryTransformer(nn.Module):
             batch_first=batch_first,
         )
         
-        # Output projection: map back to decoder feature space
         self.output_projection = nn.Linear(d_model, decoder_input_dim)
 
-    def encode(self, src: torch.Tensor):
-        src_emb = self.src_embedding(src)
-        src_emb = self.src_pos_encoding(src_emb)
-        return self.transformer.encoder(src_emb)
+    def encode(self, input_traj: torch.Tensor):
+        input_emb = self.input_embedding(input_traj)
+        input_emb = self.input_pos_encoding(input_emb)
+        return self.transformer.encoder(input_emb)
 
-    def decode(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask: Optional[torch.Tensor] = None):
-        tgt_emb = self.tgt_embedding(tgt)
-        tgt_emb = self.tgt_pos_encoding(tgt_emb)
+    def decode(self, dec_in_traj: torch.Tensor, memory: torch.Tensor, causal_mask: Optional[torch.Tensor] = None):
+        dec_in_emb = self.dec_in_embedding(dec_in_traj)
+        dec_in_emb = self.dec_in_pos_encoding(dec_in_emb)
         
         output = self.transformer.decoder(
-            tgt=tgt_emb, 
+            tgt=dec_in_emb, 
             memory=memory, 
-            tgt_mask=tgt_mask
+            tgt_mask=causal_mask
         )
         return self.output_projection(output)
         
-    def forward(self, src, tgt, tgt_mask=None, tgt_pad_mask=None):
-        memory = self.encode(src)
-        output = self.decode(tgt, memory, tgt_mask=tgt_mask)
+    def forward(self, input_traj: torch.Tensor, dec_in_traj: torch.Tensor, causal_mask: Optional[torch.Tensor] = None, target_pad_mask: Optional[torch.Tensor] = None):
+        memory = self.encode(input_traj)
+        output = self.decode(dec_in_traj, memory, causal_mask=causal_mask)
         return output
 

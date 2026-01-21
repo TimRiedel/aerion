@@ -16,13 +16,13 @@ class DecoderInputNoise:
         self.noise_std = noise_std
     
     def __call__(self, sample: Dict[str, Any]) -> Dict[str, Any]:
-        dec_in = sample["dec_in"]
+        dec_in_traj = sample["dec_in_traj"]
         
-        noise = torch.randn_like(dec_in[1:]) * self.noise_std.to(dec_in.device) # Shape: [batch_size, seq_len-1, num_features]
-        dec_in = torch.cat([
-            dec_in[0:1],  # Keep first point unchanged
-            dec_in[1:] + noise  # Add noise to rest
+        noise = torch.randn_like(dec_in_traj[1:]) * self.noise_std.to(dec_in_traj.device) # Shape: [batch_size, seq_len-1, num_features]
+        dec_in_traj = torch.cat([
+            dec_in_traj[0:1],  # Keep first point unchanged
+            dec_in_traj[1:] + noise  # Add noise to rest
         ], dim=0)
         
-        sample["dec_in"] = dec_in
+        sample["dec_in_traj"] = dec_in_traj
         return sample

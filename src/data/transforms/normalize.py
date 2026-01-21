@@ -11,7 +11,7 @@ class ZScoreNormalize:
         self.eps = eps
 
     def __call__(self, sample: Dict[str, Any]) -> Dict[str, Any]:
-        for key in ["x", "y", "dec_in"]:
+        for key in ["input_traj", "target_traj", "dec_in_traj"]:
             sample[key] = (sample[key] - self.mean) / (self.std + self.eps)
         return sample
 
@@ -56,10 +56,10 @@ class DeltaAwareNormalize:
     """
     Normalizes samples with separate stats for positions and deltas.
     
-    - x: 6 features [pos_x, pos_y, pos_alt, delta_x, delta_y, delta_alt]
+    - input_traj: 6 features [pos_x, pos_y, pos_alt, delta_x, delta_y, delta_alt]
       - First 3 features normalized with pos_mean/pos_std
       - Last 3 features normalized with delta_mean/delta_std
-    - y, dec_in: 3 features [delta_x, delta_y, delta_alt]
+    - target_traj, dec_in_traj: 3 features [delta_x, delta_y, delta_alt]
       - Normalized with delta_mean/delta_std
     """
     
@@ -86,19 +86,19 @@ class DeltaAwareNormalize:
         self.eps = eps
 
     def __call__(self, sample: Dict[str, Any]) -> Dict[str, Any]:
-        x = sample["x"]  # [T, 6]
+        input_traj = sample["input_traj"]  # [T, 6]
         
         # Normalize positions (first 3 features) and deltas (last 3 features) separately
-        x_pos = x[:, :3]
-        x_delta = x[:, 3:6]
+        input_traj_pos = input_traj[:, :3]
+        input_traj_delta = input_traj[:, 3:6]
         
-        x_pos_norm = (x_pos - self.pos_mean) / (self.pos_std + self.eps)
-        x_delta_norm = (x_delta - self.delta_mean) / (self.delta_std + self.eps)
+        input_traj_pos_norm = (input_traj_pos - self.pos_mean) / (self.pos_std + self.eps)
+        input_traj_delta_norm = (input_traj_delta - self.delta_mean) / (self.delta_std + self.eps)
         
-        sample["x"] = torch.cat([x_pos_norm, x_delta_norm], dim=1)
+        sample["input_traj"] = torch.cat([input_traj_pos_norm, input_traj_delta_norm], dim=1)
         
-        # Normalize y and dec_in with delta stats (they are pure deltas)
-        for key in ["y", "dec_in"]:
+        # Normalize target_traj and dec_in_traj with delta stats (they are pure deltas)
+        for key in ["target_traj", "dec_in_traj"]:
             sample[key] = (sample[key] - self.delta_mean) / (self.delta_std + self.eps)
         
         return sample

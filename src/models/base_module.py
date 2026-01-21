@@ -61,24 +61,24 @@ class BaseModule(pl.LightningModule):
     
     def _compute_loss(
         self,
-        predictions: torch.Tensor,
-        targets: torch.Tensor,
-        tgt_pad_mask: torch.Tensor
+        pred_traj: torch.Tensor,
+        target_traj: torch.Tensor,
+        target_pad_mask: torch.Tensor
     ) -> torch.Tensor:
         """
         Compute masked MSE loss.
         
         Args:
-            predictions: Model predictions [batch_size, horizon_seq_len, num_features]
-            targets: Target values [batch_size, horizon_seq_len, num_features]
-            tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            pred_traj: Model predictions [batch_size, horizon_seq_len, num_features]
+            target_traj: Target values [batch_size, horizon_seq_len, num_features]
+            target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
             
         Returns:
             Scalar loss value
         """
-        active_loss = ~tgt_pad_mask 
+        active_loss = ~target_pad_mask 
         
-        loss = self.criterion(predictions[active_loss], targets[active_loss]).mean()
+        loss = self.criterion(pred_traj[active_loss], target_traj[active_loss]).mean()
         return loss
 
 
@@ -107,8 +107,8 @@ class BaseModule(pl.LightningModule):
     def _evaluate_step(
         self, 
         pred_abs: torch.Tensor, 
-        tgt_abs: torch.Tensor, 
-        tgt_pad_mask: torch.Tensor,
+        target_abs: torch.Tensor, 
+        target_pad_mask: torch.Tensor,
     ):
         """
         Store metric accumulators for validation step.
@@ -117,13 +117,13 @@ class BaseModule(pl.LightningModule):
         
         Args:
             pred_abs: Model predictions (absolute positions) [batch_size, horizon_seq_len, 3]
-            tgt_abs: Target values (absolute positions) [batch_size, horizon_seq_len, 3]
-            tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            target_abs: Target values (absolute positions) [batch_size, horizon_seq_len, 3]
+            target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
         """
-        valid_mask = ~tgt_pad_mask # [B, H]
+        valid_mask = ~target_pad_mask # [B, H]
         
         # 1. Feature-wise Errors on absolute positions [B, H, F]
-        diff = pred_abs - tgt_abs
+        diff = pred_abs - target_abs
         abs_err = diff.abs()
         sq_err = diff ** 2
 
@@ -214,16 +214,16 @@ class BaseModule(pl.LightningModule):
             "val/MDE": mde_scalar,
         })
 
-    def _reconstruct_absolute_positions(self, x: torch.Tensor, y: torch.Tensor, predictions: torch.Tensor, tgt_pad_mask: torch.Tensor) -> torch.Tensor:
-        input_abs = self.denormalize_inputs(x)
-        target_deltas = self.denormalize_targets(y)
-        predictions_deltas = self.denormalize_targets(predictions)
+    def _reconstruct_absolute_positions(self, input_traj: torch.Tensor, target_traj: torch.Tensor, pred_traj: torch.Tensor) -> torch.Tensor:
+        input_abs = self.denormalize_inputs(input_traj)
+        target_deltas = self.denormalize_targets(target_traj)
+        pred_deltas = self.denormalize_targets(pred_traj)
 
         last_position_abs = input_abs[:,-1,:3].unsqueeze(1)
         target_abs = last_position_abs + target_deltas.cumsum(dim=1)
-        predictions_abs = last_position_abs + predictions_deltas.cumsum(dim=1)
+        pred_abs = last_position_abs + pred_deltas.cumsum(dim=1)
 
-        return input_abs, target_abs, predictions_abs
+        return input_abs, target_abs, pred_abs
 
         
     # --------------------------------------
@@ -258,27 +258,27 @@ class BaseModule(pl.LightningModule):
         })
 
 
-    def _visualize_prediction_vs_targets(self, in_abs: torch.Tensor, tgt_abs: torch.Tensor, pred_abs: torch.Tensor, tgt_pad_mask: torch.Tensor, batch_idx: int):
+    def _visualize_prediction_vs_targets(self, input_abs: torch.Tensor, target_abs: torch.Tensor, pred_abs: torch.Tensor, target_pad_mask: torch.Tensor, batch_idx: int):
         """
         Visualize the prediction vs targets for the first num_visualized_traj trajectories in batch index 0.
 
         Args:
-            in_abs: Input absolute positions [batch_size, horizon_seq_len, 3]
-            tgt_abs: Target absolute positions [batch_size, horizon_seq_len, 3]
+            input_abs: Input absolute positions [batch_size, horizon_seq_len, 3]
+            target_abs: Target absolute positions [batch_size, horizon_seq_len, 3]
             pred_abs: Predicted absolute positions [batch_size, horizon_seq_len, 3]
-            tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
             batch_idx: Batch index
         """
         if batch_idx != 0:
             return
 
-        for i in range(min(self.num_visualized_traj, in_abs.shape[0])):
-            in_abs_i = in_abs[i].detach().cpu().float().numpy()
-            tgt_abs_i = tgt_abs[i].detach().cpu().float().numpy()
+        for i in range(min(self.num_visualized_traj, input_abs.shape[0])):
+            input_abs_i = input_abs[i].detach().cpu().float().numpy()
+            target_abs_i = target_abs[i].detach().cpu().float().numpy()
             pred_abs_i = pred_abs[i].detach().cpu().float().numpy()
-            tgt_pad_mask_i = tgt_pad_mask[i].detach().cpu().numpy()
+            target_pad_mask_i = target_pad_mask[i].detach().cpu().numpy()
 
-            fig, ax = plot_predictions_targets(in_abs_i, tgt_abs_i, pred_abs_i, tgt_pad_mask_i, "EDDB")
+            fig, ax = plot_predictions_targets(input_abs_i, target_abs_i, pred_abs_i, target_pad_mask_i, "EDDB") # TODO: add icao
             self.logger.experiment.log({
                 f"val-predictions-targets/batch_{batch_idx}_traj_{i}": wandb.Image(fig)
             })

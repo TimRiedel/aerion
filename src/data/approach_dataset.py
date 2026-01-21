@@ -76,29 +76,29 @@ class ApproachDataset(Dataset):
         if horizon_len == 0:
             raise ValueError(f"No horizon data found for flight {flight_id}")
 
-        x_pos = torch.from_numpy(input_df.astype("float32").values) # [T_in, 3]
-        x_delta_computed = torch.diff(x_pos, dim=0)  # [T_in-1, 3]
-        x_delta = torch.cat([x_delta_computed[0:1], x_delta_computed], dim=0)  # [T_in, 3] -> backfilled first delta
-        x = torch.cat([x_pos, x_delta], dim=1) # [T_in, 6]
+        input_traj_pos = torch.from_numpy(input_df.astype("float32").values) # [T_in, 3]
+        input_traj_delta_computed = torch.diff(input_traj_pos, dim=0)  # [T_in-1, 3]
+        input_traj_delta = torch.cat([input_traj_delta_computed[0:1], input_traj_delta_computed], dim=0)  # [T_in, 3] -> backfilled first delta
+        input_traj = torch.cat([input_traj_pos, input_traj_delta], dim=1) # [T_in, 6]
         
-        y_pos = torch.from_numpy(horizon_df.astype("float32").values)
-        last_position = x_pos[-1]  # [3]
+        target_traj_pos = torch.from_numpy(horizon_df.astype("float32").values)
+        last_position = input_traj_pos[-1]  # [3]
         
         # Target: deltas between consecutive horizon positions [H, 3]
-        y_delta_ref = torch.cat([last_position.unsqueeze(0), y_pos[:-1]], dim=0)
-        y = y_pos - y_delta_ref  # [H, 3]
+        target_traj_shifted_pos = torch.cat([last_position.unsqueeze(0), target_traj_pos[:-1]], dim=0)
+        target_traj = target_traj_pos - target_traj_shifted_pos  # [H, 3]
         
         # Decoder input: shifted deltas [H, 3]
-        last_observed_delta = x_delta[-1]  # [3]
-        dec_in = torch.cat([last_observed_delta.unsqueeze(0), y[:-1]], dim=0)  # [H, 3]
+        last_observed_delta = input_traj_delta[-1]  # [3]
+        dec_in_traj = torch.cat([last_observed_delta.unsqueeze(0), target_traj[:-1]], dim=0)  # [H, 3]
 
-        y, dec_in, mask = self._pad_horizons(y, dec_in, horizon_len)
+        target_traj, dec_in_traj, mask_traj = self._pad_horizons(target_traj, dec_in_traj, horizon_len)
 
         sample = {
-            "x": x,                      # [T_in, 6] positions + deltas
-            "y": y,                      # [H, 3] target deltas
-            "dec_in": dec_in,            # [H, 3] decoder input deltas
-            "mask": mask,
+            "input_traj": input_traj,                      # [T_in, 6] positions + deltas
+            "target_traj": target_traj,                      # [H, 3] target deltas
+            "dec_in_traj": dec_in_traj,            # [H, 3] decoder input deltas
+            "mask_traj": mask_traj,
             "flight_id": flight_id
         }
 
@@ -110,24 +110,24 @@ class ApproachDataset(Dataset):
 
     def _pad_horizons(
         self,
-        y: torch.Tensor,
-        dec_in: torch.Tensor,
+        target_traj: torch.Tensor,
+        dec_in_traj: torch.Tensor,
         horizon_len: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.BoolTensor]:
         if horizon_len < self.horizon_seq_len:
             padding_len = self.horizon_seq_len - horizon_len
-            last_value = y[-1:]
+            last_value = target_traj[-1:]
             padding = last_value.repeat(padding_len, 1)
 
-            y = torch.cat([y, padding], dim=0)
-            dec_in = torch.cat([dec_in, padding], dim=0)
-            mask = torch.cat([
+            target_traj = torch.cat([target_traj, padding], dim=0)
+            dec_in_traj = torch.cat([dec_in_traj, padding], dim=0)
+            mask_traj = torch.cat([
                 torch.zeros(horizon_len, dtype=torch.bool),
                 torch.ones(padding_len, dtype=torch.bool)
             ])
         else:
-            y = y[:self.horizon_seq_len]
-            dec_in = dec_in[:self.horizon_seq_len]
-            mask = torch.zeros(self.horizon_seq_len, dtype=torch.bool)
+            target_traj = target_traj[:self.horizon_seq_len]
+            dec_in_traj = dec_in_traj[:self.horizon_seq_len]
+            mask_traj = torch.zeros(self.horizon_seq_len, dtype=torch.bool)
 
-        return y, dec_in, mask
+        return target_traj, dec_in_traj, mask_traj
