@@ -1,4 +1,2 @@
-from .transformer import TrajectoryTransformer, PositionalEncoding
-
-__all__ = ['TrajectoryTransformer', 'PositionalEncoding']
-
+from .transformer import TrajectoryTransformer
+from .aerion import Aerion

@@ -1,7 +1,10 @@
-from typing import Dict, Any, Optional, Callable, List
 import torch
-from torch.utils.data import Dataset
+import numpy as np
+import re
 import pandas as pd
+from torch.utils.data import Dataset
+from omegaconf import DictConfig
+from typing import Dict, Any, Optional, Callable, List
 
 
 class ApproachDataset(Dataset):
@@ -15,7 +18,9 @@ class ApproachDataset(Dataset):
         feature_cols: Optional[List[str]] = ["x_coord", "y_coord", "altitude"],
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
-        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
+        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        flightinfo_path: Optional[str] = None,
+        contexts_cfg: Optional[DictConfig] = None,
     ):
         self.inputs_path = inputs_path
         self.horizons_path = horizons_path
@@ -23,6 +28,7 @@ class ApproachDataset(Dataset):
         self.horizon_time_minutes = horizon_time_minutes
         self.resampling_rate_seconds = resampling_rate_seconds
         self.transform = transform
+        self.contexts_cfg = contexts_cfg or {}
 
         self.input_seq_len = input_time_minutes * 60 // resampling_rate_seconds
         base_horizon_seq_len = horizon_time_minutes * 60 // resampling_rate_seconds
@@ -40,10 +46,19 @@ class ApproachDataset(Dataset):
         self._validate_feature_cols(feature_cols)
         self.feature_cols = feature_cols
 
+        # Load flightinfo if enabled
+        self.flightinfo_df = None
+        if self._is_context_enabled("flightinfo") and flightinfo_path is not None:
+            self.flightinfo_df = pd.read_parquet(flightinfo_path).set_index("flight_id")
+
         self.flight_ids = sorted(self.inputs_df["flight_id"].unique().tolist())
         if num_trajectories_to_predict is not None:
             self.flight_ids = self.flight_ids[:num_trajectories_to_predict]
         self.size = len(self.flight_ids)
+    
+    def _is_context_enabled(self, name: str) -> bool:
+        """Check if a context is enabled in the configuration."""
+        return self.contexts_cfg.get(name, {}).get("enabled", False)
 
     def _validate_feature_cols(self, feature_cols: List[str]) -> None:
         missing_in_inputs = set(feature_cols) - set(self.inputs_df.columns)
@@ -95,17 +110,31 @@ class ApproachDataset(Dataset):
         target_traj, dec_in_traj, mask_traj = self._pad_horizons(target_traj, dec_in_traj, horizon_len)
 
         sample = {
-            "input_traj": input_traj,                      # [T_in, 6] positions + deltas
-            "target_traj": target_traj,                      # [H, 3] target deltas
-            "dec_in_traj": dec_in_traj,            # [H, 3] decoder input deltas
+            "input_traj": input_traj,     # [T_in, 6] positions + deltas
+            "target_traj": target_traj,   # [H, 3] target deltas
+            "dec_in_traj": dec_in_traj,   # [H, 3] decoder input deltas
             "mask_traj": mask_traj,
             "flight_id": flight_id
         }
+        
+        # Add flightinfo context if enabled
+        if self._is_context_enabled("flightinfo"):
+            sample["flightinfo"] = self._get_flightinfo(flight_id)
 
         if self.transform is not None:
             sample = self.transform(sample)
 
         return sample
+    
+    def _get_flightinfo(self, flight_id: str) -> torch.Tensor:
+        if self.flightinfo_df is None:
+            raise ValueError("Flightinfo context is enabled but flightinfo_df is not loaded")
+        
+        flight_id_without_sample_index = re.sub(r"_S\d+$", "", flight_id) # Remove trailing _S+digits
+        row = self.flightinfo_df.loc[flight_id_without_sample_index]
+        features = self.contexts_cfg["flightinfo"]["features"]
+        values = row[features].values.astype(np.float32)
+        return torch.from_numpy(values)
 
 
     def _pad_horizons(

@@ -24,6 +24,7 @@ class AerionData(pl.LightningDataModule):
         delta_std: torch.Tensor = None,
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
+        contexts_cfg: DictConfig = None,
     ):
         super().__init__()
         self.dataset_cfg = dataset_cfg
@@ -31,6 +32,7 @@ class AerionData(pl.LightningDataModule):
         self.data_processing_cfg = processing_cfg
         self.num_trajectories_to_predict = num_trajectories_to_predict
         self.num_waypoints_to_predict = num_waypoints_to_predict
+        self.contexts_cfg = contexts_cfg or {}
 
         self.seed = seed
         self.pos_mean = pos_mean
@@ -53,6 +55,8 @@ class AerionData(pl.LightningDataModule):
                 feature_cols=self.data_processing_cfg.feature_cols,
                 num_trajectories_to_predict=self.num_trajectories_to_predict,
                 num_waypoints_to_predict=self.num_waypoints_to_predict,
+                flightinfo_path=self.dataset_cfg.get("flightinfo_path"),
+                contexts_cfg=self.contexts_cfg,
             )
 
             # Split train and validation datasets, but only if num_trajectories_to_predict is not set for debugging
@@ -82,6 +86,8 @@ class AerionData(pl.LightningDataModule):
                 num_trajectories_to_predict=self.num_trajectories_to_predict,
                 num_waypoints_to_predict=self.num_waypoints_to_predict,
                 transform=self._get_transform(),
+                flightinfo_path=self.dataset_cfg.get("flightinfo_path"),
+                contexts_cfg=self.contexts_cfg,
             )
 
 

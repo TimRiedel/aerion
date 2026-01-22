@@ -21,6 +21,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
 
     num_trajectories_to_predict = cfg.get("execution", {}).get("num_trajectories_to_predict", None)
     num_visualized_traj = cfg.get("execution", {}).get("num_visualized_traj", 10)
+    contexts_cfg = cfg.get("contexts", {})
 
     data = AerionData(
         cfg["dataset"],
@@ -29,15 +30,33 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
         cfg.seed,
         num_trajectories_to_predict=num_trajectories_to_predict,
         num_waypoints_to_predict=horizon_seq_len,
+        contexts_cfg=contexts_cfg,
     )
-    model = TransformerModule(
-        cfg["model"],
-        cfg["optimizer"],
-        input_seq_len,
-        horizon_seq_len,
-        scheduler_cfg=cfg.get("scheduler", None),
-        num_visualized_traj=num_visualized_traj
-    )
+    
+    # Instantiate correct module based on model name
+    model_cfg = OmegaConf.to_container(cfg["model"], resolve=True) # Convert to regular dict to allow modifications
+    optimizer_cfg = OmegaConf.to_container(cfg["optimizer"], resolve=True)
+
+    if cfg["model"]["name"] == "aerion":
+        model = AerionModule(
+            model_cfg,
+            optimizer_cfg,
+            input_seq_len,
+            horizon_seq_len,
+            contexts_cfg=contexts_cfg,
+            scheduler_cfg=cfg.get("scheduler", None),
+            num_visualized_traj=num_visualized_traj,
+        )
+    else:
+        model = TransformerModule(
+            model_cfg,
+            optimizer_cfg,
+            input_seq_len,
+            horizon_seq_len,
+            scheduler_cfg=cfg.get("scheduler", None),
+            num_visualized_traj=num_visualized_traj,
+        )
+    
     log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
     trainer.fit(model, data)
 

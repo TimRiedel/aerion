@@ -1,1 +1,2 @@
 from .transformer_module import TransformerModule
+from .aerion_module import AerionModule

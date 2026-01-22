@@ -19,6 +19,7 @@ trainer:
 optimizer:
   _target_: torch.optim.AdamW
   lr: 1e-4
+  weight_decay: 0.01
 
 scheduler:
   warmup_epochs: 5

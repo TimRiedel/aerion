@@ -14,16 +14,27 @@ defaults:
 experiment_name: "aerion-debug"
 
 trainer:
-  max_epochs: 100
+  max_epochs: 50
 
 optimizer:
   _target_: torch.optim.AdamW
-  lr: 1e-3
-  weight_decay: 0.0
+  lr: 1e-4
+  weight_decay: 0.01
 
 dataloader:
   batch_size: 3072
 
 data_processing:
-  icao_code: "EDDB"
-  feature_cols: ["latitude", "longitude", "altitude", "groundspeed", "track", "vertical_rate"]
+  feature_cols: ["x_coord", "y_coord", "altitude"]
+
+scheduler:
+  warmup_epochs: 5
+
+contexts:
+  flightinfo:
+    enabled: true
+    features:
+      - rwy_x
+      - rwy_y
+      - rwy_bearing_sin
+      - rwy_bearing_cos
