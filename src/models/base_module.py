@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 from torch import nn
 from hydra.utils import instantiate
 from omegaconf import DictConfig
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from data.transforms.normalize import ZScoreDenormalize
 from visualization.predictions_targets import plot_predictions_targets
@@ -35,6 +36,39 @@ class BaseModule(pl.LightningModule):
         
         # Loss function
         self.criterion = nn.MSELoss(reduction="none")
+
+    # --------------------------------------
+    # Optimizer and Scheduler
+    # --------------------------------------
+
+    def configure_optimizers(self):
+        optimizer = instantiate(self.optimizer_cfg, params=self.model.parameters())
+        
+        if self.scheduler_cfg is None:
+            return optimizer
+        else:
+            steps_per_epoch = len(self.trainer.datamodule.train_dataloader())
+            warmup_epochs = self.scheduler_cfg.get('warmup_epochs', 0)
+            
+            warmup_steps = steps_per_epoch * warmup_epochs
+            total_steps = steps_per_epoch * self.trainer.max_epochs
+
+            scheduler = SequentialLR(
+                optimizer,
+                schedulers=[
+                    LinearLR(optimizer, start_factor=1e-6, total_iters=warmup_steps),
+                    CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps),
+                ],
+                milestones=[warmup_steps],
+            )
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "step",
+                    "frequency": 1
+                }
+            }
 
 
     # --------------------------------------
