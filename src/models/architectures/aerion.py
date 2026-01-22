@@ -120,12 +120,14 @@ class Aerion(nn.Module, TrajectoryBackbone):
         dec_in_traj: torch.Tensor,
         memory: torch.Tensor,
         causal_mask: Optional[torch.Tensor] = None,
+        target_pad_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Args:
             dec_in_traj: Decoder input [batch, horizon_len, decoder_input_dim]
             memory: Encoder memory [batch, seq_len, d_model]
             causal_mask: Causal mask for autoregressive decoding
+            target_pad_mask: Padding mask for variable-length targets [batch, horizon_len] (True = padded)
             
         Returns:
             Predicted trajectory [batch, horizon_len, decoder_input_dim]
@@ -137,6 +139,7 @@ class Aerion(nn.Module, TrajectoryBackbone):
             tgt=dec_in_emb,
             memory=memory,
             tgt_mask=causal_mask,
+            tgt_key_padding_mask=target_pad_mask,
         )
         return self.output_projection(output)
     
@@ -160,5 +163,5 @@ class Aerion(nn.Module, TrajectoryBackbone):
             Predicted trajectory [batch, horizon_len, decoder_input_dim]
         """
         memory = self.encode(input_traj, contexts=contexts)
-        output = self.decode(dec_in_traj, memory, causal_mask=causal_mask)
+        output = self.decode(dec_in_traj, memory, causal_mask=causal_mask, target_pad_mask=target_pad_mask)
         return output

@@ -59,7 +59,12 @@ class TransformerModule(BaseModule):
                 current_seq_len, dtype=torch.bool, device=input_traj.device
             )
 
-            output = self.model.decode(current_dec_in, memory, causal_mask=target_mask)
+            output = self.model.decode(
+                current_dec_in, 
+                memory, 
+                causal_mask=target_mask,
+                target_pad_mask=None,  # No padding mask during autoregressive validation to avoid sequence length leakage
+            )
             next_step_pred = output[:, -1:, :]
             current_dec_in = torch.cat([current_dec_in, next_step_pred], dim=1)
 
