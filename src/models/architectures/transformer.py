@@ -1,38 +1,12 @@
 import torch
 import torch.nn as nn
-import math
 from typing import Optional
 
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, max_len: int = 5000, dropout: float = 0.1):
-        """
-        Args:
-            d_model: Model dimension
-            max_len: Maximum sequence length
-            dropout: Dropout probability
-        """
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        
-        # Create positional encoding matrix
-        position = torch.arange(max_len).unsqueeze(1)  # [max_len, 1]
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        
-        pe = torch.zeros(max_len, d_model)
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)  # [1, max_len, d_model]
-        
-        # Register as buffer (not a parameter, but part of model state)
-        self.register_buffer('pe', pe)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.pe[:, :x.size(1), :]
-        return self.dropout(x)
+from .base import TrajectoryBackbone, PositionalEncoding
 
 
-class TrajectoryTransformer(nn.Module):
+
+class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
     """
     Autoregressive transformer model for trajectory prediction with encoder-decoder architecture.
     """
@@ -78,12 +52,17 @@ class TrajectoryTransformer(nn.Module):
         
         self.output_projection = nn.Linear(d_model, decoder_input_dim)
 
-    def encode(self, input_traj: torch.Tensor):
+    def encode(self, input_traj: torch.Tensor) -> torch.Tensor:
         input_emb = self.input_embedding(input_traj)
         input_emb = self.input_pos_encoding(input_emb)
         return self.transformer.encoder(input_emb)
 
-    def decode(self, dec_in_traj: torch.Tensor, memory: torch.Tensor, causal_mask: Optional[torch.Tensor] = None):
+    def decode(
+        self, 
+        dec_in_traj: torch.Tensor, 
+        memory: torch.Tensor, 
+        causal_mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         dec_in_emb = self.dec_in_embedding(dec_in_traj)
         dec_in_emb = self.dec_in_pos_encoding(dec_in_emb)
         
@@ -94,7 +73,13 @@ class TrajectoryTransformer(nn.Module):
         )
         return self.output_projection(output)
         
-    def forward(self, input_traj: torch.Tensor, dec_in_traj: torch.Tensor, causal_mask: Optional[torch.Tensor] = None, target_pad_mask: Optional[torch.Tensor] = None):
+    def forward(
+        self, 
+        input_traj: torch.Tensor, 
+        dec_in_traj: torch.Tensor, 
+        causal_mask: Optional[torch.Tensor] = None, 
+        target_pad_mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         memory = self.encode(input_traj)
         output = self.decode(dec_in_traj, memory, causal_mask=causal_mask)
         return output
