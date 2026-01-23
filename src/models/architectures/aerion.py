@@ -14,8 +14,9 @@ class Aerion(nn.Module, TrajectoryBackbone):
     
     def __init__(
         self,
-        encoder_input_dim: int = 6,
-        decoder_input_dim: int = 3,
+        encoder_input_dim: int = 8,
+        decoder_input_dim: int = 5,
+        output_dim: int = 3,
         d_model: int = 128,
         nhead: int = 8,
         num_encoder_layers: int = 6,
@@ -31,6 +32,7 @@ class Aerion(nn.Module, TrajectoryBackbone):
         
         self.encoder_input_dim = encoder_input_dim
         self.decoder_input_dim = decoder_input_dim
+        self.output_dim = output_dim
         self.d_model = d_model
         self.nhead = nhead
         self.num_encoder_layers = num_encoder_layers
@@ -74,7 +76,7 @@ class Aerion(nn.Module, TrajectoryBackbone):
             for _ in range(num_decoder_layers)
         ])
         
-        self.output_projection = nn.Linear(d_model, decoder_input_dim)
+        self.output_projection = nn.Linear(d_model, output_dim)
     
     def _is_context_enabled(self, name: str) -> bool:
         """Check if a context is enabled in the configuration."""
@@ -134,7 +136,7 @@ class Aerion(nn.Module, TrajectoryBackbone):
             flightinfo_emb: Encoded flightinfo [batch, 1, d_model] or None
             
         Returns:
-            Predicted trajectory [batch, horizon_len, decoder_input_dim]
+            Predicted deltas [batch, horizon_len, output_dim]
         """
         dec_in_emb = self.dec_in_embedding(dec_in_traj)
         dec_in_emb = self.dec_in_pos_encoding(dec_in_emb)
@@ -167,7 +169,7 @@ class Aerion(nn.Module, TrajectoryBackbone):
             contexts: Dictionary of context tensors
             
         Returns:
-            Predicted trajectory [batch, horizon_len, decoder_input_dim]
+            Predicted deltas [batch, horizon_len, output_dim]
         """
         contexts = contexts or {}
         

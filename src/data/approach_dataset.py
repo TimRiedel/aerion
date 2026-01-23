@@ -6,6 +6,8 @@ from torch.utils.data import Dataset
 from omegaconf import DictConfig
 from typing import Dict, Any, Optional, Callable, List
 
+from data.utils.trajectory import compute_threshold_features
+
 
 class ApproachDataset(Dataset):
     def __init__(
@@ -94,26 +96,33 @@ class ApproachDataset(Dataset):
         input_traj_pos = torch.from_numpy(input_df.astype("float32").values) # [T_in, 3]
         input_traj_delta_computed = torch.diff(input_traj_pos, dim=0)  # [T_in-1, 3]
         input_traj_delta = torch.cat([input_traj_delta_computed[0:1], input_traj_delta_computed], dim=0)  # [T_in, 3] -> backfilled first delta
-        input_traj = torch.cat([input_traj_pos, input_traj_delta], dim=1) # [T_in, 6]
         
         target_traj_pos = torch.from_numpy(horizon_df.astype("float32").values)
         last_position = input_traj_pos[-1]  # [3]
         
+        threshold_xy = target_traj_pos[-1, :2] # last valid horizon position
+        input_thr_features = compute_threshold_features(input_traj_pos[:, :2], threshold_xy)  # [T_in, 2]
+        input_traj = torch.cat([input_traj_pos, input_traj_delta, input_thr_features], dim=1)  # [T_in, 8]
+        
         # Target: deltas between consecutive horizon positions [H, 3]
         target_traj_shifted_pos = torch.cat([last_position.unsqueeze(0), target_traj_pos[:-1]], dim=0)
-        target_traj = target_traj_pos - target_traj_shifted_pos  # [H, 3]
+        target_traj_deltas = target_traj_pos - target_traj_shifted_pos  # [H, 3]
         
-        # Decoder input: shifted deltas [H, 3]
+        # Decoder input: shifted deltas (3) + threshold direction vector (2) [H, 5]
         last_observed_delta = input_traj_delta[-1]  # [3]
-        dec_in_traj = torch.cat([last_observed_delta.unsqueeze(0), target_traj[:-1]], dim=0)  # [H, 3]
+        dec_in_deltas = torch.cat([last_observed_delta.unsqueeze(0), target_traj_deltas[:-1]], dim=0)  # [H, 3]
+        dec_in_positions = torch.cat([last_position.unsqueeze(0), target_traj_pos[:-1]], dim=0)  # [H, 3]
+        dec_in_thr_features = compute_threshold_features(dec_in_positions[:, :2], threshold_xy)  # [H, 2]
+        dec_in_traj = torch.cat([dec_in_deltas, dec_in_thr_features], dim=1)  # [H, 5]
 
-        target_traj, dec_in_traj, mask_traj = self._pad_horizons(target_traj, dec_in_traj, horizon_len)
+        target_traj_deltas, dec_in_traj, mask_traj = self._pad_horizons(target_traj_deltas, dec_in_traj, horizon_len)
 
         sample = {
-            "input_traj": input_traj,     # [T_in, 6] positions + deltas
-            "target_traj": target_traj,   # [H, 3] target deltas
-            "dec_in_traj": dec_in_traj,   # [H, 3] decoder input deltas
-            "mask_traj": mask_traj,
+            "input_traj": input_traj,            # [T_in, 8] positions + deltas + threshold direction vector
+            "target_traj": target_traj_deltas,   # [H, 3] target deltas
+            "dec_in_traj": dec_in_traj,          # [H, 5] decoder input deltas + threshold direction vector
+            "mask_traj": mask_traj,              # [H] mask for padded positions
+            "threshold_xy": threshold_xy,        # [2] threshold position for autoregressive inference
             "flight_id": flight_id
         }
         
@@ -145,11 +154,15 @@ class ApproachDataset(Dataset):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.BoolTensor]:
         if horizon_len < self.horizon_seq_len:
             padding_len = self.horizon_seq_len - horizon_len
-            last_value = target_traj[-1:]
-            padding = last_value.repeat(padding_len, 1)
-
-            target_traj = torch.cat([target_traj, padding], dim=0)
-            dec_in_traj = torch.cat([dec_in_traj, padding], dim=0)
+            
+            # Pad target_traj (deltas only)
+            target_padding = target_traj[-1:].repeat(padding_len, 1)
+            target_traj = torch.cat([target_traj, target_padding], dim=0)
+            
+            # Pad dec_in_traj (deltas + threshold features)
+            dec_in_padding = dec_in_traj[-1:].repeat(padding_len, 1)
+            dec_in_traj = torch.cat([dec_in_traj, dec_in_padding], dim=0)
+            
             mask_traj = torch.cat([
                 torch.zeros(horizon_len, dtype=torch.bool),
                 torch.ones(padding_len, dtype=torch.bool)

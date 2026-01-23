@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from omegaconf import DictConfig
 
 from models.base_module import BaseModule
+from data.utils.trajectory import compute_threshold_features
 
 
 class AerionModule(BaseModule):
@@ -54,9 +55,10 @@ class AerionModule(BaseModule):
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
         target_pad_mask = batch["mask_traj"]
+        threshold_xy = batch["threshold_xy"]
         contexts = self._extract_contexts(batch)
         
-        pred_traj = self._predict_autoregressively(input_traj, dec_in_traj, target_pad_mask, contexts)
+        pred_traj = self._predict_autoregressively(input_traj, dec_in_traj, threshold_xy, contexts)
         input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, pred_traj, target_traj, target_pad_mask)
 
         loss = self.loss(pred_abs, target_abs, target_pad_mask)
@@ -94,10 +96,20 @@ class AerionModule(BaseModule):
         self,
         input_traj: torch.Tensor,
         dec_in_traj: torch.Tensor,
-        target_pad_mask: torch.Tensor,
+        threshold_xy: torch.Tensor,
         contexts: Dict[str, torch.Tensor],
     ) -> torch.Tensor:
-        """Predict autoregressively (inference mode)."""
+        """Predict autoregressively (inference mode).
+        
+        Args:
+            input_traj: Normalized input trajectory [B, T_in, 8]
+            dec_in_traj: Normalized decoder input [B, H, 5] (only first token used)
+            threshold_xy: Threshold coordinates [B, 2]
+            contexts: Dictionary of context tensors
+            
+        Returns:
+            Predicted deltas [B, H, 3]
+        """
         # 1. Encode once (with context)
         memory = self.model.encode(input_traj, contexts=contexts)
 
@@ -106,11 +118,15 @@ class AerionModule(BaseModule):
         if self.model.use_flightinfo and "flightinfo" in contexts:
             flightinfo_emb = self.model.flightinfo_encoder(contexts["flightinfo"])
 
-        # 3. Initialize: Start with the first token of dec_in_traj
-        current_dec_in = dec_in_traj[:, 0:1, :]
+        # 3. Get denormalized last input position for tracking current position
+        input_abs = self.denormalize_inputs(input_traj)
+        current_position = input_abs[:, -1, :3].clone()  # [B, 3] - last position (x, y, alt)
+
+        # 4. Initialize: Start with the first token of dec_in_traj
+        current_dec_in = dec_in_traj[:, 0:1, :]  # [B, 1, 5]
         all_predictions = []
 
-        # 4. Autoregressive loop
+        # 5. Autoregressive loop
         for i in range(self.horizon_seq_len):
             current_seq_len = current_dec_in.size(1)
             target_mask = self._generate_causal_mask(current_seq_len, input_traj.device)
@@ -122,12 +138,33 @@ class AerionModule(BaseModule):
                 target_pad_mask=None,  # No padding mask during autoregressive validation to avoid sequence length leakage
                 flightinfo_emb=flightinfo_emb,
             )
-            next_step_pred = output[:, -1:, :]
-            current_dec_in = torch.cat([current_dec_in, next_step_pred], dim=1)
-
+            next_step_pred = output[:, -1:, :]  # [B, 1, 3] - predicted delta (normalized)
             all_predictions.append(next_step_pred)
+            
+            # Update current position with denormalized predicted delta
+            pred_delta_denorm = self.denormalize_target_deltas(next_step_pred)  # [B, 1, 3]
+            current_position = current_position + pred_delta_denorm[:, 0, :]  # [B, 3]
+            
+            # Compute new threshold features for next decoder input
+            new_thr_features = compute_threshold_features(
+                current_position[:, :2],  # [B, 2] - x, y only
+                threshold_xy              # [B, 2]
+            )  # [B, 2]
+            
+            # Normalize threshold features using position stats
+            pos_mean_xy = self.denormalize_inputs.mean[:2]  # [2]
+            pos_std_xy = self.denormalize_inputs.std[:2]    # [2]
+            new_thr_features_norm = (new_thr_features - pos_mean_xy) / pos_std_xy  # [B, 2]
+            
+            # Build next decoder input: [predicted_delta_norm, thr_features_norm]
+            next_dec_in = torch.cat([
+                next_step_pred,                        # [B, 1, 3]
+                new_thr_features_norm.unsqueeze(1)     # [B, 1, 2]
+            ], dim=-1)  # [B, 1, 5]
+            
+            current_dec_in = torch.cat([current_dec_in, next_dec_in], dim=1)
 
-        pred_traj = torch.cat(all_predictions, dim=1)
+        pred_traj = torch.cat(all_predictions, dim=1)  # [B, H, 3]
         return pred_traj
 
 

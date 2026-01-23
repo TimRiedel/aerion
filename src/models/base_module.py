@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from data.transforms.normalize import Denormalizer
 from models.losses import ADELoss, CompositeApproachLoss
-from models.utils import reconstruct_absolute_from_deltas
+from data.utils.trajectory import reconstruct_absolute_from_deltas
 from visualization.predictions_targets import plot_predictions_targets
 
 
@@ -85,9 +85,9 @@ class BaseModule(pl.LightningModule):
     def on_fit_start(self):
         dm = self.trainer.datamodule
         
-        # Inputs are [Pos(3) + Delta(3)]
-        input_mean = torch.cat([dm.pos_mean, dm.delta_mean], dim=0)
-        input_std = torch.cat([dm.pos_std, dm.delta_std], dim=0)
+        # Inputs are [Pos(3) + Delta(3) + ThresholdFeatures(2)]
+        input_mean = torch.cat([dm.pos_mean, dm.delta_mean, dm.pos_mean[:2]], dim=0)
+        input_std = torch.cat([dm.pos_std, dm.delta_std, dm.pos_std[:2]], dim=0)
         
         self.denormalize_inputs = Denormalizer(input_mean, input_std)
         self.denormalize_target_deltas = Denormalizer(dm.delta_mean, dm.delta_std)
@@ -116,13 +116,13 @@ class BaseModule(pl.LightningModule):
         This is a convenience method that uses the utility function for trajectory reconstruction.
         
         Args:
-            input_traj: Normalized input trajectory [batch_size, input_seq_len, 6]
+            input_traj: Normalized input trajectory [batch_size, input_seq_len, 8]
             target_traj: Normalized target deltas [batch_size, horizon_seq_len, 3]
             pred_traj: Normalized prediction deltas [batch_size, horizon_seq_len, 3]
             target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
             
         Returns:
-            input_abs: Denormalized input absolute positions [batch_size, input_seq_len, 6]
+            input_abs: Denormalized input absolute positions [batch_size, input_seq_len, 8]
             target_abs: Reconstructed target absolute positions [batch_size, horizon_seq_len, 3]
             pred_abs: Reconstructed prediction absolute positions [batch_size, horizon_seq_len, 3]
         """
@@ -141,7 +141,7 @@ class BaseModule(pl.LightningModule):
 
     def on_validation_epoch_start(self):
         H = self.horizon_seq_len          # All horizons
-        F = self.model.decoder_input_dim  # Number features
+        F = self.model.output_dim         # Number of output features (predicted deltas)
 
         device = self.device
 

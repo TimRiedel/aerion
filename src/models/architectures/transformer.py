@@ -13,8 +13,9 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
     
     def __init__(
         self,
-        encoder_input_dim: int = 6,
-        decoder_input_dim: int = 3,
+        encoder_input_dim: int = 8,
+        decoder_input_dim: int = 5,
+        output_dim: int = 3,
         d_model: int = 128,
         nhead: int = 8,
         num_encoder_layers: int = 4,
@@ -29,6 +30,7 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
         
         self.encoder_input_dim = encoder_input_dim
         self.decoder_input_dim = decoder_input_dim
+        self.output_dim = output_dim
         self.d_model = d_model
         self.nhead = nhead
         self.num_encoder_layers = num_encoder_layers
@@ -50,7 +52,7 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
             batch_first=batch_first,
         )
         
-        self.output_projection = nn.Linear(d_model, decoder_input_dim)
+        self.output_projection = nn.Linear(d_model, output_dim)
 
     def encode(self, input_traj: torch.Tensor) -> torch.Tensor:
         input_emb = self.input_embedding(input_traj)

@@ -2,6 +2,23 @@ import torch
 from data.transforms.normalize import Denormalizer
 
 
+def compute_threshold_features(
+    positions_xy: torch.Tensor,
+    threshold_xy: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Compute displacement features from positions to threshold.
+    
+    Args:
+        positions_xy: Position coordinates [*, 2] (x, y)
+        threshold_xy: Threshold coordinates [2] or broadcastable shape
+        
+    Returns:
+        Displacement features (dx_to_thr, dy_to_thr) as [*, 2]
+    """
+    return threshold_xy - positions_xy
+
+
 def reconstruct_absolute_from_deltas(
     input_traj: torch.Tensor,
     pred_deltas: torch.Tensor,
@@ -19,7 +36,7 @@ def reconstruct_absolute_from_deltas(
     3. Reconstructs absolute positions by integrating deltas from last known position
     
     Args:
-        input_traj: Normalized input trajectory [batch_size, input_seq_len, 6]
+        input_traj: Normalized input trajectory [batch_size, input_seq_len, 8]
         pred_deltas: Normalized prediction deltas [batch_size, horizon_seq_len, 3]
         target_deltas: Normalized target deltas [batch_size, horizon_seq_len, 3]
         denormalize_inputs: Denormalizer for input trajectories
@@ -27,7 +44,7 @@ def reconstruct_absolute_from_deltas(
         target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
         
     Returns:
-        input_abs: Denormalized input absolute positions [batch_size, input_seq_len, 6]
+        input_abs: Denormalized input absolute positions [batch_size, input_seq_len, 8]
         pred_abs: Reconstructed prediction absolute positions [batch_size, horizon_seq_len, 3]
         target_abs: Reconstructed target absolute positions [batch_size, horizon_seq_len, 3]
     """

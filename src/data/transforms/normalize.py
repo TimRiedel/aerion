@@ -7,10 +7,14 @@ class DeltaAwareNormalize:
     """
     Normalizes samples with separate stats for positions and deltas.
     
-    - input_traj: 6 features [pos_x, pos_y, pos_alt, delta_x, delta_y, delta_alt]
+    - input_traj: 8 features [pos_x, pos_y, pos_alt, delta_x, delta_y, delta_alt, thr_dx, thr_dy]
       - First 3 features normalized with pos_mean/pos_std
-      - Last 3 features normalized with delta_mean/delta_std
-    - target_traj, dec_in_traj: 3 features [delta_x, delta_y, delta_alt]
+      - Next 3 features normalized with delta_mean/delta_std
+      - Last 2 features (threshold) normalized with pos_mean[:2]/pos_std[:2]
+    - dec_in_traj: 5 features [delta_x, delta_y, delta_alt, thr_dx, thr_dy]
+      - First 3 features normalized with delta_mean/delta_std
+      - Last 2 features (threshold) normalized with pos_mean[:2]/pos_std[:2]
+    - target_traj: 3 features [delta_x, delta_y, delta_alt]
       - Normalized with delta_mean/delta_std
     """
     
@@ -47,23 +51,37 @@ class DeltaAwareNormalize:
         return sample
 
     def normalize_input_traj(self, input_traj: torch.Tensor) -> torch.Tensor:
-        """ Input trajectory [T_in, 6]: 
-            - Positions (x, y, alt) - normalized
-            - Deltas (delta_x, delta_y, delta_alt) - normalized
+        """ Input trajectory [T_in, 8]: 
+            - Positions (x, y, alt) - normalized with pos stats
+            - Deltas (delta_x, delta_y, delta_alt) - normalized with delta stats
+            - Threshold features (thr_dx, thr_dy) - normalized with pos stats (x, y only)
         """
         input_traj_pos = input_traj[:, :3]
         input_traj_delta = input_traj[:, 3:6]
+        input_traj_thr = input_traj[:, 6:8]
+        
         input_traj_pos_norm = (input_traj_pos - self.pos_mean) / (self.pos_std + self.eps)
         input_traj_delta_norm = (input_traj_delta - self.delta_mean) / (self.delta_std + self.eps)
-        return torch.cat([input_traj_pos_norm, input_traj_delta_norm], dim=1)
+        input_traj_thr_norm = (input_traj_thr - self.pos_mean[:2]) / (self.pos_std[:2] + self.eps)
+        
+        return torch.cat([input_traj_pos_norm, input_traj_delta_norm, input_traj_thr_norm], dim=1)
 
     def normalize_target_traj(self, target_traj: torch.Tensor) -> torch.Tensor:
         """ Target trajectory with only deltas [H, 3]"""
         return (target_traj - self.delta_mean) / (self.delta_std + self.eps)
 
     def normalize_dec_in_traj(self, dec_in_traj: torch.Tensor) -> torch.Tensor:
-        """ Decoder input trajectory with only deltas [H, 3]"""
-        return (dec_in_traj - self.delta_mean) / (self.delta_std + self.eps)
+        """ Decoder input trajectory [H, 5]:
+            - Deltas (delta_x, delta_y, delta_alt) - normalized with delta stats
+            - Threshold features (thr_dx, thr_dy) - normalized with pos stats (x, y only)
+        """
+        dec_in_delta = dec_in_traj[:, :3]
+        dec_in_thr = dec_in_traj[:, 3:5]
+        
+        dec_in_delta_norm = (dec_in_delta - self.delta_mean) / (self.delta_std + self.eps)
+        dec_in_thr_norm = (dec_in_thr - self.pos_mean[:2]) / (self.pos_std[:2] + self.eps)
+        
+        return torch.cat([dec_in_delta_norm, dec_in_thr_norm], dim=1)
 
     def normalize_flightinfo(self, flightinfo: torch.Tensor) -> torch.Tensor:
         """ Flightinfo [num_features] (typically [4]): 
