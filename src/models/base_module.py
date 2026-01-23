@@ -183,9 +183,11 @@ class BaseModule(pl.LightningModule):
         self.val_count_valid_waypoints += valid_mask.sum(dim=0)
 
         # 5. MDE (Max Displacement Error) calculation
-        traj_max_dist = dist_3d_masked.max(dim=1).values # [B]
+        traj_max_dist_2d = dist_2d_masked.max(dim=1).values # [B]
+        traj_max_dist_3d = dist_3d_masked.max(dim=1).values # [B]
         has_valid_points = valid_mask.any(dim=1)         # [B]
-        self.val_sum_of_max_dist_2d += traj_max_dist[has_valid_points].sum()
+        self.val_sum_of_max_dist_2d += traj_max_dist_2d[has_valid_points].sum()
+        self.val_sum_of_max_dist_3d += traj_max_dist_3d[has_valid_points].sum()
         self.val_count_traj += has_valid_points.sum()
 
 
@@ -239,13 +241,15 @@ class BaseModule(pl.LightningModule):
         ade3d_scalar = self.val_sum_dist_3d.sum() / total_valid_points
 
         # MDE (Average of Max Displacement per trajectory)
-        mde_scalar = self.val_sum_of_max_dist_2d / total_trajectories
+        mde2d_scalar = self.val_sum_of_max_dist_2d / total_trajectories
+        mde3d_scalar = self.val_sum_of_max_dist_3d / total_trajectories
 
         self.log_dict({
             "val/ADE2D": ade2d_scalar,
             "val/ADE3D": ade3d_scalar,
             # "val/FDE": ade3d_seq[-1], # TODO: must be FDE at last horizon (without padding -> separately aggregated)
-            "val/MDE": mde_scalar,
+            "val/MDE2D": mde2d_scalar,
+            "val/MDE3D": mde3d_scalar,
         })
 
     def _reconstruct_absolute_positions(self, input_traj: torch.Tensor, target_traj: torch.Tensor, pred_traj: torch.Tensor) -> torch.Tensor:
