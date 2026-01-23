@@ -65,6 +65,16 @@ optimizer:
   weight_decay: 0.01
 
 # --------------------------------------
+# Loss
+# --------------------------------------
+loss:
+  _target_: models.losses.CompositeApproachLoss
+  use_3d: true
+  weights:
+    ade: 1.0
+    fde: 3.0
+
+# --------------------------------------
 # Weights and Biases
 # --------------------------------------
 wandb:

@@ -45,6 +45,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             horizon_seq_len,
             contexts_cfg=contexts_cfg,
             scheduler_cfg=cfg.get("scheduler", None),
+            loss_cfg=cfg.get("loss", None),
             num_visualized_traj=num_visualized_traj,
         )
     else:
@@ -54,6 +55,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             input_seq_len,
             horizon_seq_len,
             scheduler_cfg=cfg.get("scheduler", None),
+            loss_cfg=cfg.get("loss", None),
             num_visualized_traj=num_visualized_traj,
         )
     

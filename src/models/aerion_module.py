@@ -15,6 +15,7 @@ class AerionModule(BaseModule):
         horizon_seq_len: int,
         contexts_cfg: Optional[DictConfig] = None,
         scheduler_cfg: Optional[DictConfig] = None,
+        loss_cfg: Optional[DictConfig] = None,
         num_visualized_traj: int = 10,
     ):
         self.contexts_cfg = contexts_cfg or {}
@@ -28,6 +29,7 @@ class AerionModule(BaseModule):
             input_seq_len=input_seq_len,
             horizon_seq_len=horizon_seq_len,
             scheduler_cfg=scheduler_cfg,
+            loss_cfg=loss_cfg,
             num_visualized_traj=num_visualized_traj,
         )
     

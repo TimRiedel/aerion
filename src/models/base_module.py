@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from data.transforms.normalize import Denormalizer
-from models.losses import ADELoss
+from models.losses import ADELoss, CompositeApproachLoss
 from models.utils import reconstruct_absolute_from_deltas
 from visualization.predictions_targets import plot_predictions_targets
 
@@ -22,6 +22,7 @@ class BaseModule(pl.LightningModule):
         input_seq_len: int,
         horizon_seq_len: int,
         scheduler_cfg: DictConfig = None,
+        loss_cfg: DictConfig = None,
         num_visualized_traj: int = 10,
     ):
         super().__init__()
@@ -37,7 +38,10 @@ class BaseModule(pl.LightningModule):
         self.evaluation_horizons = [h for h in predefined_horizons if h <= self.horizon_seq_len]
         self.num_visualized_traj = num_visualized_traj
 
-        self.loss = ADELoss()
+        if loss_cfg is not None:
+            self.loss = instantiate(loss_cfg)
+        else:
+            self.loss = ADELoss()
         
 
     # --------------------------------------
