@@ -97,6 +97,18 @@ def log_important_parameters(cfg: DictConfig, trainer: Trainer, input_seq_len: i
     """
     logger.info("\n%s", formatted)
 
+def add_wandb_tags(cfg: DictConfig) -> None:
+    # Add model and dataset tags as default to wandb tags
+    cfg["wandb"]["tags"].append(cfg["model"]["name"])
+    cfg["wandb"]["tags"].append(cfg["dataset"]["name"])
+    
+    # Add tags for all enabled contexts
+    contexts_cfg = cfg.get("contexts", {})
+    for context_name, context_config in contexts_cfg.items():
+        if context_config.get("enabled", False):
+            cfg["wandb"]["tags"].append(context_name)
+    return cfg
+
 
 @hydra.main(version_base=None, config_path="../configs", config_name="execute_aerion")
 def main(cfg: DictConfig) -> None:
@@ -112,9 +124,7 @@ def main(cfg: DictConfig) -> None:
     if num_waypoints_to_predict is not None:
         horizon_seq_len = min(horizon_seq_len, num_waypoints_to_predict)
 
-    # Add model and dataset tags as default to wandb tags
-    cfg["wandb"]["tags"].append(cfg["model"]["name"])
-    cfg["wandb"]["tags"].append(cfg["dataset"]["name"])
+    cfg = add_wandb_tags(cfg)
 
     if cfg.stage == "train" or cfg.stage == "fit":
         train(cfg, input_seq_len, horizon_seq_len)
