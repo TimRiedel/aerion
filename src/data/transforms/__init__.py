@@ -1,2 +1,2 @@
-from .normalize import ZScoreNormalize, ZScoreDenormalize, DeltaAwareNormalize
+from .normalize import DeltaAwareNormalize, Denormalizer
 from .noise import DecoderInputNoise

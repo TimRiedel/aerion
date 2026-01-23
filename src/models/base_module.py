@@ -7,7 +7,9 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
-from data.transforms.normalize import ZScoreDenormalize
+from data.transforms.normalize import Denormalizer
+from models.losses import ADELoss
+from models.utils import reconstruct_absolute_from_deltas
 from visualization.predictions_targets import plot_predictions_targets
 
 
@@ -29,13 +31,14 @@ class BaseModule(pl.LightningModule):
         self.scheduler_cfg = scheduler_cfg
         self.input_seq_len = input_seq_len
         self.horizon_seq_len = horizon_seq_len
+
         # Evaluation horizons
         predefined_horizons = [1, 3, 6, 15, 30, 45, 60, 75, 90, 105, 120]
         self.evaluation_horizons = [h for h in predefined_horizons if h <= self.horizon_seq_len]
         self.num_visualized_traj = num_visualized_traj
+
+        self.loss = ADELoss()
         
-        # Loss function
-        self.criterion = nn.MSELoss(reduction="none")
 
     # --------------------------------------
     # Optimizer and Scheduler
@@ -77,44 +80,56 @@ class BaseModule(pl.LightningModule):
 
     def on_fit_start(self):
         dm = self.trainer.datamodule
-
-        # Store stats for denormalization
-        self.register_buffer("pos_mean", dm.pos_mean)
-        self.register_buffer("pos_std", dm.pos_std)
-        self.register_buffer("delta_mean", dm.delta_mean)
-        self.register_buffer("delta_std", dm.delta_std)
-
+        
+        # Inputs are [Pos(3) + Delta(3)]
         input_mean = torch.cat([dm.pos_mean, dm.delta_mean], dim=0)
         input_std = torch.cat([dm.pos_std, dm.delta_std], dim=0)
-        self.denormalize_inputs = ZScoreDenormalize(input_mean, input_std) # Inputs are positions and deltas [6]
-        self.denormalize_targets = ZScoreDenormalize(dm.delta_mean, dm.delta_std) # Targets and decoder input are pure deltas [3]
+        
+        self.denormalize_inputs = Denormalizer(input_mean, input_std)
+        self.denormalize_target_deltas = Denormalizer(dm.delta_mean, dm.delta_std)
+
+        # Register as submodules so they're moved to the correct device automatically
+        self.add_module("denormalize_inputs", self.denormalize_inputs)
+        self.add_module("denormalize_target_deltas", self.denormalize_target_deltas)
+        self.denormalize_inputs.to(self.device)
+        self.denormalize_target_deltas.to(self.device)
+        
 
     # --------------------------------------
     # Training and Validation
     # --------------------------------------
-    
-    def _compute_loss(
+
+    def _reconstruct_absolute_positions(
         self,
-        pred_traj: torch.Tensor,
+        input_traj: torch.Tensor,
         target_traj: torch.Tensor,
-        target_pad_mask: torch.Tensor
-    ) -> torch.Tensor:
+        pred_traj: torch.Tensor,
+        target_pad_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Compute masked MSE loss.
+        Reconstruct absolute positions from normalized trajectories.
+        
+        This is a convenience method that uses the utility function for trajectory reconstruction.
         
         Args:
-            pred_traj: Model predictions [batch_size, horizon_seq_len, num_features]
-            target_traj: Target values [batch_size, horizon_seq_len, num_features]
+            input_traj: Normalized input trajectory [batch_size, input_seq_len, 6]
+            target_traj: Normalized target deltas [batch_size, horizon_seq_len, 3]
+            pred_traj: Normalized prediction deltas [batch_size, horizon_seq_len, 3]
             target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
             
         Returns:
-            Scalar loss value
+            input_abs: Denormalized input absolute positions [batch_size, input_seq_len, 6]
+            target_abs: Reconstructed target absolute positions [batch_size, horizon_seq_len, 3]
+            pred_abs: Reconstructed prediction absolute positions [batch_size, horizon_seq_len, 3]
         """
-        active_loss = ~target_pad_mask 
-        
-        loss = self.criterion(pred_traj[active_loss], target_traj[active_loss]).mean()
-        return loss
-
+        return reconstruct_absolute_from_deltas(
+            input_traj=input_traj,
+            pred_deltas=pred_traj,
+            target_deltas=target_traj,
+            denormalize_inputs=self.denormalize_inputs,
+            denormalize_target_deltas=self.denormalize_target_deltas,
+            target_pad_mask=target_pad_mask,
+        )
 
     # --------------------------------------
     # Validation metrics
@@ -183,6 +198,10 @@ class BaseModule(pl.LightningModule):
         self.val_count_valid_waypoints += valid_mask.sum(dim=0)
 
         # 5. MDE (Max Displacement Error) calculation
+        # Use masked max: set padded positions to -inf so they're ignored in max()
+        dist_2d_masked[~valid_mask] = -torch.inf
+        dist_3d_masked[~valid_mask] = -torch.inf
+        
         traj_max_dist_2d = dist_2d_masked.max(dim=1).values # [B]
         traj_max_dist_3d = dist_3d_masked.max(dim=1).values # [B]
         has_valid_points = valid_mask.any(dim=1)         # [B]
@@ -234,6 +253,7 @@ class BaseModule(pl.LightningModule):
 
         # --- Logging Aggregates (Scalars) ---
         total_valid_points = self.val_count_valid_waypoints.sum() # Number of valid waypoints over all horizons
+        total_valid_points = total_valid_points.clamp(min=1.0)  # Prevent division by zero
         total_trajectories = self.val_count_traj.clamp(min=1.0)
 
         # ADE (Average of Euclidean Distance per valid waypoint)
@@ -252,16 +272,6 @@ class BaseModule(pl.LightningModule):
             "val/MDE3D": mde3d_scalar,
         })
 
-    def _reconstruct_absolute_positions(self, input_traj: torch.Tensor, target_traj: torch.Tensor, pred_traj: torch.Tensor) -> torch.Tensor:
-        input_abs = self.denormalize_inputs(input_traj)
-        target_deltas = self.denormalize_targets(target_traj)
-        pred_deltas = self.denormalize_targets(pred_traj)
-
-        last_position_abs = input_abs[:,-1,:3].unsqueeze(1)
-        target_abs = last_position_abs + target_deltas.cumsum(dim=1)
-        pred_abs = last_position_abs + pred_deltas.cumsum(dim=1)
-
-        return input_abs, target_abs, pred_abs
 
         
     # --------------------------------------
