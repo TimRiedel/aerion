@@ -5,7 +5,7 @@ from typing import Optional, Dict
 from omegaconf import DictConfig
 
 from .base import PositionalEncoding, TrajectoryBackbone
-from .layers import ContextAwareTransformerEncoderLayer
+from .layers import ContextAwareTransformerEncoderLayer, ContextAwareTransformerDecoderLayer
 from .encoders import FlightInfoEncoder
 
 
@@ -43,7 +43,6 @@ class Aerion(nn.Module, TrajectoryBackbone):
         # Trajectory input embedding
         self.input_embedding = nn.Linear(encoder_input_dim, d_model)
         self.input_pos_encoding = PositionalEncoding(d_model, max_len=max_input_len, dropout=dropout)
-        
         self._initialize_context_encoders()
         
         # Context-aware encoder layers
@@ -59,18 +58,21 @@ class Aerion(nn.Module, TrajectoryBackbone):
             for _ in range(num_encoder_layers)
         ])
         
-        # Standard transformer decoder
         self.dec_in_embedding = nn.Linear(decoder_input_dim, d_model)
         self.dec_in_pos_encoding = PositionalEncoding(d_model, max_len=max_output_len, dropout=dropout)
         
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            batch_first=batch_first,
-        )
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_decoder_layers)
+        # Context-aware decoder layers
+        self.decoder_layers = nn.ModuleList([
+            ContextAwareTransformerDecoderLayer(
+                d_model=d_model,
+                nhead=nhead,
+                dim_feedforward=dim_feedforward,
+                dropout=dropout,
+                batch_first=batch_first,
+                use_flightinfo=self.use_flightinfo,
+            )
+            for _ in range(num_decoder_layers)
+        ])
         
         self.output_projection = nn.Linear(d_model, decoder_input_dim)
     
@@ -121,6 +123,7 @@ class Aerion(nn.Module, TrajectoryBackbone):
         memory: torch.Tensor,
         causal_mask: Optional[torch.Tensor] = None,
         target_pad_mask: Optional[torch.Tensor] = None,
+        flightinfo_emb: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -128,6 +131,7 @@ class Aerion(nn.Module, TrajectoryBackbone):
             memory: Encoder memory [batch, seq_len, d_model]
             causal_mask: Causal mask for autoregressive decoding
             target_pad_mask: Padding mask for variable-length targets [batch, horizon_len] (True = padded)
+            flightinfo_emb: Encoded flightinfo [batch, 1, d_model] or None
             
         Returns:
             Predicted trajectory [batch, horizon_len, decoder_input_dim]
@@ -135,13 +139,16 @@ class Aerion(nn.Module, TrajectoryBackbone):
         dec_in_emb = self.dec_in_embedding(dec_in_traj)
         dec_in_emb = self.dec_in_pos_encoding(dec_in_emb)
         
-        output = self.decoder(
-            tgt=dec_in_emb,
-            memory=memory,
-            tgt_mask=causal_mask,
-            tgt_key_padding_mask=target_pad_mask,
-        )
-        return self.output_projection(output)
+        for layer in self.decoder_layers:
+            dec_in_emb = layer(
+                target_emb=dec_in_emb,
+                memory=memory,
+                target_mask=causal_mask,
+                target_key_padding_mask=target_pad_mask,
+                flightinfo_emb=flightinfo_emb,
+            )
+        
+        return self.output_projection(dec_in_emb)
     
     def forward(
         self,
@@ -162,6 +169,22 @@ class Aerion(nn.Module, TrajectoryBackbone):
         Returns:
             Predicted trajectory [batch, horizon_len, decoder_input_dim]
         """
+        contexts = contexts or {}
+        
+        # Encode input trajectory with contexts
         memory = self.encode(input_traj, contexts=contexts)
-        output = self.decode(dec_in_traj, memory, causal_mask=causal_mask, target_pad_mask=target_pad_mask)
+        
+        # Encode contexts for decoder
+        flightinfo_emb = None
+        if self.use_flightinfo and "flightinfo" in contexts:
+            flightinfo_emb = self.flightinfo_encoder(contexts["flightinfo"])
+        
+        # Decode with context-aware decoder
+        output = self.decode(
+            dec_in_traj, 
+            memory, 
+            causal_mask=causal_mask, 
+            target_pad_mask=target_pad_mask,
+            flightinfo_emb=flightinfo_emb,
+        )
         return output

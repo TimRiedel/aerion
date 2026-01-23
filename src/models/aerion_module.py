@@ -97,11 +97,16 @@ class AerionModule(BaseModule):
         # 1. Encode once (with context)
         memory = self.model.encode(input_traj, contexts=contexts)
 
-        # 2. Initialize: Start with the first token of dec_in_traj
+        # 2. Encode contexts for decoder (if enabled)
+        flightinfo_emb = None
+        if self.model.use_flightinfo and "flightinfo" in contexts:
+            flightinfo_emb = self.model.flightinfo_encoder(contexts["flightinfo"])
+
+        # 3. Initialize: Start with the first token of dec_in_traj
         current_dec_in = dec_in_traj[:, 0:1, :]
         all_predictions = []
 
-        # 3. Autoregressive loop
+        # 4. Autoregressive loop
         for i in range(self.horizon_seq_len):
             current_seq_len = current_dec_in.size(1)
             target_mask = self._generate_causal_mask(current_seq_len, input_traj.device)
@@ -111,6 +116,7 @@ class AerionModule(BaseModule):
                 memory, 
                 causal_mask=target_mask,
                 target_pad_mask=None,  # No padding mask during autoregressive validation to avoid sequence length leakage
+                flightinfo_emb=flightinfo_emb,
             )
             next_step_pred = output[:, -1:, :]
             current_dec_in = torch.cat([current_dec_in, next_step_pred], dim=1)

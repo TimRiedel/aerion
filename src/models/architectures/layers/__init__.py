@@ -1,5 +1,9 @@
-from .context_transformer_layer import ContextAwareTransformerEncoderLayer
+from .context_transformer_layer import (
+    ContextAwareTransformerEncoderLayer,
+    ContextAwareTransformerDecoderLayer,
+)
 
 __all__ = [
     'ContextAwareTransformerEncoderLayer',
+    'ContextAwareTransformerDecoderLayer',
 ]
