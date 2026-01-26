@@ -43,10 +43,16 @@ class AerionModule(BaseModule):
         contexts = self._extract_contexts(batch)
 
         pred_traj = self._predict_teacher_forcing(input_traj, dec_in_traj, target_pad_mask, contexts)
-        _, pred_abs, target_abs = self._reconstruct_absolute_positions(input_traj, pred_traj, target_traj, target_pad_mask)
+        input_abs, pred_abs, target_abs = self._reconstruct_absolute_positions(input_traj, pred_traj, target_traj, target_pad_mask)
         
         loss = self.loss(pred_abs, target_abs, target_pad_mask)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
+        
+        self.train_metrics.update(pred_abs, target_abs, target_pad_mask)
+        self._visualize_prediction_vs_targets(
+            input_abs, target_abs, pred_abs, target_pad_mask, batch_idx,
+            prefix="train", num_trajectories=6
+        )
         
         return loss
     
@@ -64,8 +70,12 @@ class AerionModule(BaseModule):
         loss = self.loss(pred_abs, target_abs, target_pad_mask)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
 
-        self._evaluate_step(pred_abs, target_abs, target_pad_mask)
-        self._visualize_prediction_vs_targets(input_abs, target_abs, pred_abs, target_pad_mask, batch_idx)
+        self.val_metrics.update(pred_abs, target_abs, target_pad_mask)
+        self._visualize_prediction_vs_targets(
+            input_abs, target_abs, pred_abs, target_pad_mask, batch_idx, 
+            prefix="val", num_trajectories=self.num_visualized_traj
+        )
+
         return loss
     
 

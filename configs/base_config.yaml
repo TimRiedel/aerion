@@ -68,7 +68,7 @@ optimizer:
 # Loss
 # --------------------------------------
 loss:
-  _target_: models.losses.CompositeApproachLoss
+  _target_: models.metrics.CompositeApproachLoss
   use_3d: true
   weights:
     mse: 1.0
