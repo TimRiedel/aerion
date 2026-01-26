@@ -22,8 +22,8 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
         num_decoder_layers: int = 4,
         dim_feedforward: int = 512,
         dropout: float = 0.0,
-        max_input_len: int = 15,
-        max_output_len: int = 120,
+        max_input_len: int = 10,
+        max_output_len: int = 80,
         batch_first: bool = True,
     ):
         super().__init__()

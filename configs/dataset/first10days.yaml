@@ -9,6 +9,6 @@ flightinfo_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/dataset
 
 input_time_minutes: 5
 horizon_time_minutes: 40
-resampling_rate_seconds: 20
+resampling_rate_seconds: 30
 
 
