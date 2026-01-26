@@ -71,8 +71,9 @@ loss:
   _target_: models.losses.CompositeApproachLoss
   use_3d: true
   weights:
-    ade: 1.0
-    fde: 3.0
+    mse: 1.0
+    ade: 0.0
+    fde: 0.0
 
 # --------------------------------------
 # Weights and Biases

@@ -14,12 +14,18 @@ defaults:
 experiment_name: "aerion-debug"
 
 trainer:
-  max_epochs: 50
+  max_epochs: 30
 
 optimizer:
   _target_: torch.optim.AdamW
   lr: 1e-4
   weight_decay: 0.01
+
+loss:
+  weights:
+    mse: 1.0
+    ade: 0.0
+    fde: 0.0
 
 dataloader:
   batch_size: 3072
@@ -28,11 +34,11 @@ data_processing:
   feature_cols: ["x_coord", "y_coord", "altitude"]
 
 scheduler:
-  warmup_epochs: 5
+  warmup_epochs: 8
 
 contexts:
   flightinfo:
-    enabled: true
+    enabled: false
     features:
       - rwy_x
       - rwy_y
