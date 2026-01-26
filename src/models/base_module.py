@@ -1,5 +1,6 @@
 import wandb
 import torch
+import numpy as np
 import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 from torch import nn
@@ -150,11 +151,15 @@ class BaseModule(pl.LightningModule):
         self.val_sum_sq_error = torch.zeros(H, F, device=device)
         self.val_sum_dist_2d = torch.zeros(H, device=device)
         self.val_sum_dist_3d = torch.zeros(H, device=device)
-        self.val_count_valid_waypoints = torch.zeros(H, device=device) # Shape: [H]
+        self.val_sum_fde_2d = torch.tensor(0.0, device=device)
+        self.val_sum_fde_3d = torch.tensor(0.0, device=device)
 
         # Aggregate MDE accumulators (Max Displacement Error)
-        self.val_sum_of_max_dist_2d = torch.tensor(0.0, device=device)
-        self.val_sum_of_max_dist_3d = torch.tensor(0.0, device=device)
+        self.val_sum_max_dist_2d = torch.tensor(0.0, device=device)
+        self.val_sum_max_dist_3d = torch.tensor(0.0, device=device)
+
+        # Count of valid waypoints and trajectories
+        self.val_count_valid_waypoints = torch.zeros(H, device=device) # Shape: [H]
         self.val_count_traj = torch.tensor(0.0, device=device) # Shape: [1]
 
     def _evaluate_step(
@@ -174,6 +179,8 @@ class BaseModule(pl.LightningModule):
             target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
         """
         valid_mask = ~target_pad_mask # [B, H]
+        last_valid_index = (valid_mask.sum(dim=1) - 1).clamp(min=0) # [B]
+        batch_indices = torch.arange(pred_abs.size(0), device=pred_abs.device) # [B]
         
         # 1. Feature-wise Errors on absolute positions [B, H, F]
         diff = pred_abs - target_abs
@@ -188,31 +195,33 @@ class BaseModule(pl.LightningModule):
         # Zero out invalid entries for summation
         # Expand mask for features: [B, H] -> [B, H, 1]
         valid_mask_unsqueezed = valid_mask.unsqueeze(-1)
-        
         abs_err_masked = abs_err * valid_mask_unsqueezed
         sq_err_masked = sq_err * valid_mask_unsqueezed
         dist_2d_masked = dist_2d * valid_mask
         dist_3d_masked = dist_3d * valid_mask
+        fde_2d = dist_2d_masked[batch_indices, last_valid_index]
+        fde_3d = dist_3d_masked[batch_indices, last_valid_index]
 
         # 4. Accumulate per horizon (Sum over batch dimension)
         self.val_sum_abs_error += abs_err_masked.sum(dim=0)
         self.val_sum_sq_error += sq_err_masked.sum(dim=0)
         self.val_sum_dist_2d += dist_2d_masked.sum(dim=0)
         self.val_sum_dist_3d += dist_3d_masked.sum(dim=0)
-        self.val_count_valid_waypoints += valid_mask.sum(dim=0)
+        self.val_sum_fde_2d += fde_2d.sum()
+        self.val_sum_fde_3d += fde_3d.sum()
 
         # 5. MDE (Max Displacement Error) calculation
         # Use masked max: set padded positions to -inf so they're ignored in max()
         dist_2d_masked[~valid_mask] = -torch.inf
         dist_3d_masked[~valid_mask] = -torch.inf
-        
         traj_max_dist_2d = dist_2d_masked.max(dim=1).values # [B]
         traj_max_dist_3d = dist_3d_masked.max(dim=1).values # [B]
-        has_valid_points = valid_mask.any(dim=1)         # [B]
-        self.val_sum_of_max_dist_2d += traj_max_dist_2d[has_valid_points].sum()
-        self.val_sum_of_max_dist_3d += traj_max_dist_3d[has_valid_points].sum()
-        self.val_count_traj += has_valid_points.sum()
+        has_valid_points = valid_mask.any(dim=1)            # [B]
+        self.val_sum_max_dist_2d += traj_max_dist_2d[has_valid_points].sum()
+        self.val_sum_max_dist_3d += traj_max_dist_3d[has_valid_points].sum()
 
+        self.val_count_valid_waypoints += valid_mask.sum(dim=0)
+        self.val_count_traj += valid_mask.any(dim=1).sum()
 
     def on_validation_epoch_end(self):
         for tensor in [  # Needed for DDP
@@ -220,94 +229,80 @@ class BaseModule(pl.LightningModule):
             self.val_sum_sq_error,
             self.val_sum_dist_2d,
             self.val_sum_dist_3d,
-            self.val_sum_of_max_dist_2d,
-            self.val_sum_of_max_dist_3d,
+            self.val_sum_fde_2d,
+            self.val_sum_fde_3d,
+            self.val_sum_max_dist_2d,
+            self.val_sum_max_dist_3d,
             self.val_count_valid_waypoints,
             self.val_count_traj,
         ]:
             self.trainer.strategy.reduce(tensor, reduce_op="sum")
 
-        # count.shape: [H, 1]
-        count = self.val_count_valid_waypoints.clamp(min=1.0).unsqueeze(1)
+        valid_points_per_horizon = self.val_count_valid_waypoints.clamp(min=1.0) # Shape: [H]
+        total_valid_points = self.val_count_valid_waypoints.sum().clamp(min=1.0) # Scalar
+        total_trajectories = self.val_count_traj.clamp(min=1.0)                  # Scalar
+
+        # 1. ADE (Average of Euclidean Distance per valid waypoint)
+        ade2d_seq = self.val_sum_dist_2d / valid_points_per_horizon     # Shape: [H]
+        ade3d_seq = self.val_sum_dist_3d / valid_points_per_horizon     # Shape: [H]
+        ade2d_scalar = self.val_sum_dist_2d.sum() / total_valid_points  # Scalar
+        ade3d_scalar = self.val_sum_dist_3d.sum() / total_valid_points  # Scalar
         
-        # mae.shape = rmse.shape: [H, F]
-        mae = self.val_sum_abs_error / count
-        rmse = torch.sqrt(self.val_sum_sq_error / count)
+        # 2. MAE (Mean Absolute Error) and RMSE (Root Mean Square Error)
+        valid_points_per_horizon = valid_points_per_horizon.unsqueeze(1)    # Shape: [H, 1]
+        mae = self.val_sum_abs_error / valid_points_per_horizon             # Shape: [H, F]
+        rmse = torch.sqrt(self.val_sum_sq_error / valid_points_per_horizon) # Shape: [H, F]
 
-        # ade.shape: [H] -> Remove feature dim for 1D tensors
-        count_1d = count.squeeze(1)
-        ade2d_seq = self.val_sum_dist_2d / count_1d
-        ade3d_seq = self.val_sum_dist_3d / count_1d
+        # 3. MDE (Average Max Displacement Error)
+        mde2d_scalar = self.val_sum_max_dist_2d / total_trajectories # Scalar
+        mde3d_scalar = self.val_sum_max_dist_3d / total_trajectories # Scalar
 
-        # --- Logging Plots (filtered by evaluation_horizons) ---
-        eval_indices = [h - 1 for h in self.evaluation_horizons]
-        
-        # Extract specific horizons for plotting
-        mae_plot = mae[eval_indices]
-        rmse_plot = rmse[eval_indices]
-        ade2d_plot = ade2d_seq[eval_indices].unsqueeze(1)
-        ade3d_plot = ade3d_seq[eval_indices].unsqueeze(1)
+        # 4. FDE (Average Final Displacement Error)
+        fde2d_scalar = self.val_sum_fde_2d / total_trajectories # Scalar
+        fde3d_scalar = self.val_sum_fde_3d / total_trajectories # Scalar
 
+        # --- Logging Line Plots ---
+        self._horizon_line_plot(ade2d_seq, "ADE2D")
+        self._horizon_line_plot(ade3d_seq, "ADE3D")
         for feature in ["X", "Y", "Altitude"]:
-            self._log_error_vs_horizon(mae_plot, "MAE", feature)
-            self._log_error_vs_horizon(rmse_plot, "RMSE", feature)
-
-        self._log_error_vs_horizon(ade2d_plot, "ADE2D")
-        self._log_error_vs_horizon(ade3d_plot, "ADE3D")
-
+            self._horizon_line_plot(mae, "MAE", feature)
+            self._horizon_line_plot(rmse, "RMSE", feature)
+        
         # --- Logging Aggregates (Scalars) ---
-        total_valid_points = self.val_count_valid_waypoints.sum() # Number of valid waypoints over all horizons
-        total_valid_points = total_valid_points.clamp(min=1.0)  # Prevent division by zero
-        total_trajectories = self.val_count_traj.clamp(min=1.0)
-
-        # ADE (Average of Euclidean Distance per valid waypoint)
-        ade2d_scalar = self.val_sum_dist_2d.sum() / total_valid_points
-        ade3d_scalar = self.val_sum_dist_3d.sum() / total_valid_points
-
-        # MDE (Average of Max Displacement per trajectory)
-        mde2d_scalar = self.val_sum_of_max_dist_2d / total_trajectories
-        mde3d_scalar = self.val_sum_of_max_dist_3d / total_trajectories
-
         self.log_dict({
             "val/ADE2D": ade2d_scalar,
             "val/ADE3D": ade3d_scalar,
-            # "val/FDE": ade3d_seq[-1], # TODO: must be FDE at last horizon (without padding -> separately aggregated)
+            "val/FDE2D": fde2d_scalar,
+            "val/FDE3D": fde3d_scalar,
             "val/MDE2D": mde2d_scalar,
             "val/MDE3D": mde3d_scalar,
         })
 
-
-        
+ 
     # --------------------------------------
     # Logging and Visualization
     # --------------------------------------
 
-    def _log_error_vs_horizon(self, metric: torch.Tensor, metric_name: str, feature_name: str = None):
+    def _horizon_line_plot(self, metric: torch.Tensor, metric_name: str, feature_name: str = None):
+        horizons = np.arange(1, self.horizon_seq_len + 1).tolist()
         if feature_name is not None:
-            features = ["X", "Y", "Altitude"]
-            feat_idx = features.index(feature_name)
-            metric = metric[:, feat_idx].detach().cpu().tolist()
-            name = f"{metric_name} {feature_name}"
+            feat_idx = ["X", "Y", "Altitude"].index(feature_name)
+            metric = metric[:, feat_idx]
+        metric_values = metric.detach().cpu().tolist()
+        data = [[x, y] for (x, y) in zip(horizons, metric_values)]
+
+        y_column = "Error" if feature_name is None else f"{feature_name} Error"
+        x_column = "Horizon"
+        table = wandb.Table(data=data, columns = [x_column, y_column])
+
+        if feature_name is None:
+            category = f"val-ade-horizons"
         else:
-            # For 1D metrics like ADE2D, ADE3D -> Input metric shape: [H, 1]
-            metric = metric.squeeze(1).detach().cpu().tolist()
-            name = metric_name
+            category = f"val-{metric_name.lower()}-horizons"
+            metric_name = f"{metric_name} {feature_name}"
 
-        table = wandb.Table(columns=[name, "Horizon"])
-        for i, val in enumerate(metric):
-            h = self.evaluation_horizons[i]
-            table.add_data(val, h)
-
-        fields = {"value": name, "label": "Horizon"}
-        custom_chart = wandb.plot_table(
-            vega_spec_name="timriedel/error_by_horizon",
-            data_table=table,
-            fields=fields,
-        )
-
-        self.logger.experiment.log({
-            f"val-{metric_name.lower()}/{name}": custom_chart
-        })
+        plot = wandb.plot.line(table, x_column, y_column, title=f"{metric_name} vs Horizon")
+        self.logger.experiment.log({f"{category}/{metric_name}" : plot})
 
 
     def _visualize_prediction_vs_targets(self, input_abs: torch.Tensor, target_abs: torch.Tensor, pred_abs: torch.Tensor, target_pad_mask: torch.Tensor, batch_idx: int):
