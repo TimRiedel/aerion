@@ -24,8 +24,11 @@ optimizer:
 loss:
   weights:
     mse: 0.0
-    ade: 0.3
-    fde: 0.7
+    ade: 0.5
+    fde: 0.5
+    alignment: 0.2
+  alignment_num_waypoints: 4      # Number of final waypoints (default: 4 = 90s with 30s spacing)
+  alignment_scale_factor: 10000.0  # Scale to match ADE/FDE magnitude
 
 dataloader:
   batch_size: 3072

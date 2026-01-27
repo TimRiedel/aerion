@@ -47,7 +47,8 @@ class AerionModule(BaseModule):
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
         target_pad_mask = batch["mask_traj"]
-        threshold_xy = batch["threshold_xy"]
+        runway = batch["runway"]
+        threshold_xy = runway[:, :2]  # First 2 elements are threshold_xy
         contexts = self._extract_contexts(batch)
 
         if self.scheduled_sampling_enabled:
@@ -59,7 +60,7 @@ class AerionModule(BaseModule):
         
         input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
         
-        loss = self.loss(pred_abs, target_abs, target_pad_mask)
+        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway=runway)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
         
         self.train_metrics.update(pred_abs, target_abs, target_pad_mask)
@@ -75,13 +76,14 @@ class AerionModule(BaseModule):
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
         target_pad_mask = batch["mask_traj"]
-        threshold_xy = batch["threshold_xy"]
+        runway = batch["runway"]
+        threshold_xy = runway[:, :2]  # First 2 elements are threshold_xy
         contexts = self._extract_contexts(batch)
         
         pred_traj, _, _, _ = self._predict_autoregressively(input_traj, dec_in_traj, threshold_xy, contexts)
         input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
 
-        loss = self.loss(pred_abs, target_abs, target_pad_mask)
+        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway=runway)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
 
         self.val_metrics.update(pred_abs, target_abs, target_pad_mask)
@@ -310,8 +312,8 @@ class AerionModule(BaseModule):
         
         # Log the current scheduled sampling state (once per epoch, on first batch)
         if self.trainer.global_step % len(self.trainer.datamodule.train_dataloader()) == 0:
-            self.log("train/teacher_forcing_steps", float(tf_steps), on_step=False, on_epoch=True)
-            self.log("train/autoregressive_steps", float(ar_steps), on_step=False, on_epoch=True)
+            self.log("train/teacher_forcing_steps", float(tf_steps), on_step=False, on_epoch=True, batch_size=len(input_traj))
+            self.log("train/autoregressive_steps", float(ar_steps), on_step=False, on_epoch=True, batch_size=len(input_traj))
         
         # Special case: Full teacher forcing
         if tf_steps >= self.horizon_seq_len:

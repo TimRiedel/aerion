@@ -48,9 +48,8 @@ class ApproachDataset(Dataset):
         self._validate_feature_cols(feature_cols)
         self.feature_cols = feature_cols
 
-        # Load flightinfo if enabled
         self.flightinfo_df = None
-        if self._is_context_enabled("flightinfo") and flightinfo_path is not None:
+        if flightinfo_path is not None:
             self.flightinfo_df = pd.read_parquet(flightinfo_path).set_index("flight_id")
 
         self.flight_ids = sorted(self.inputs_df["flight_id"].unique().tolist())
@@ -122,11 +121,10 @@ class ApproachDataset(Dataset):
             "target_traj": target_traj_deltas,   # [H, 3] target deltas
             "dec_in_traj": dec_in_traj,          # [H, 5] decoder input deltas + threshold direction vector
             "mask_traj": mask_traj,              # [H] mask for padded positions
-            "threshold_xy": threshold_xy,        # [2] threshold position for autoregressive inference
+            "runway": self._get_runway_data(flight_id, threshold_xy),
             "flight_id": flight_id
         }
         
-        # Add flightinfo context if enabled
         if self._is_context_enabled("flightinfo"):
             sample["flightinfo"] = self._get_flightinfo(flight_id)
 
@@ -135,6 +133,17 @@ class ApproachDataset(Dataset):
 
         return sample
     
+    def _get_runway_data(self, flight_id: str, threshold_xy: torch.Tensor) -> torch.Tensor:
+        """Build runway tensor: [threshold_x, threshold_y] or [threshold_x, threshold_y, bearing_sin, bearing_cos]."""
+        if self.flightinfo_df is not None:
+            flight_id_without_sample_index = re.sub(r"_S\d+$", "", flight_id)
+            row = self.flightinfo_df.loc[flight_id_without_sample_index]
+            bearing_sin = torch.tensor(row["rwy_bearing_sin"], dtype=torch.float32)
+            bearing_cos = torch.tensor(row["rwy_bearing_cos"], dtype=torch.float32)
+            return torch.cat([threshold_xy, bearing_sin.unsqueeze(0), bearing_cos.unsqueeze(0)])  # [4]
+        else:
+            return threshold_xy  # [2]
+
     def _get_flightinfo(self, flight_id: str) -> torch.Tensor:
         if self.flightinfo_df is None:
             raise ValueError("Flightinfo context is enabled but flightinfo_df is not loaded")
