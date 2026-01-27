@@ -10,7 +10,7 @@ class TransformerModule(BaseModule):
         input_traj, target_traj, dec_in_traj, target_pad_mask = batch["input_traj"], batch["target_traj"], batch["dec_in_traj"], batch["mask_traj"]
 
         pred_traj = self._predict_teacher_forcing(input_traj, dec_in_traj, target_pad_mask)
-        input_abs, pred_abs, target_abs = self._reconstruct_absolute_positions(input_traj, pred_traj, target_traj, target_pad_mask)
+        input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
 
         loss = self.loss(pred_abs, target_abs, target_pad_mask)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
@@ -31,7 +31,7 @@ class TransformerModule(BaseModule):
         threshold_xy = batch["threshold_xy"]
         
         pred_traj = self._predict_autoregressively(input_traj, dec_in_traj, threshold_xy)
-        input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, pred_traj, target_traj, target_pad_mask)
+        input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
 
         loss = self.loss(pred_abs, target_abs, target_pad_mask)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))

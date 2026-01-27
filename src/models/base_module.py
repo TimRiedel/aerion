@@ -155,8 +155,8 @@ class BaseModule(pl.LightningModule):
         """
         return reconstruct_absolute_from_deltas(
             input_traj=input_traj,
-            pred_deltas=pred_traj,
             target_deltas=target_traj,
+            pred_deltas=pred_traj,
             denormalize_inputs=self.denormalize_inputs,
             denormalize_target_deltas=self.denormalize_target_deltas,
             target_pad_mask=target_pad_mask,

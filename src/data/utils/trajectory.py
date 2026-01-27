@@ -21,8 +21,8 @@ def compute_threshold_features(
 
 def reconstruct_absolute_from_deltas(
     input_traj: torch.Tensor,
-    pred_deltas: torch.Tensor,
     target_deltas: torch.Tensor,
+    pred_deltas: torch.Tensor,
     denormalize_inputs: Denormalizer,
     denormalize_target_deltas: Denormalizer,
     target_pad_mask: torch.Tensor,
@@ -37,16 +37,16 @@ def reconstruct_absolute_from_deltas(
     
     Args:
         input_traj: Normalized input trajectory [batch_size, input_seq_len, 8]
-        pred_deltas: Normalized prediction deltas [batch_size, horizon_seq_len, 3]
         target_deltas: Normalized target deltas [batch_size, horizon_seq_len, 3]
+        pred_deltas: Normalized prediction deltas [batch_size, horizon_seq_len, 3]
         denormalize_inputs: Denormalizer for input trajectories
         denormalize_target_deltas: Denormalizer for target/prediction deltas
         target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
         
     Returns:
         input_abs: Denormalized input absolute positions [batch_size, input_seq_len, 8]
-        pred_abs: Reconstructed prediction absolute positions [batch_size, horizon_seq_len, 3]
         target_abs: Reconstructed target absolute positions [batch_size, horizon_seq_len, 3]
+        pred_abs: Reconstructed prediction absolute positions [batch_size, horizon_seq_len, 3]
     """
     # 1. Denormalize inputs and deltas
     input_abs = denormalize_inputs(input_traj)
@@ -66,4 +66,4 @@ def reconstruct_absolute_from_deltas(
     pred_abs = p0 + torch.cumsum(pred_deltas_m, dim=1)
     target_abs = p0 + torch.cumsum(target_deltas_m, dim=1)
     
-    return input_abs, pred_abs, target_abs
+    return input_abs, target_abs, pred_abs
