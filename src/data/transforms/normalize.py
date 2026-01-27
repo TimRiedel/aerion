@@ -44,10 +44,6 @@ class DeltaAwareNormalize:
         sample["input_traj"] = self.normalize_input_traj(sample["input_traj"])
         sample["target_traj"] = self.normalize_target_traj(sample["target_traj"])
         sample["dec_in_traj"] = self.normalize_dec_in_traj(sample["dec_in_traj"])
-
-        if "flightinfo" in sample:
-            sample["flightinfo"] = self.normalize_flightinfo(sample["flightinfo"])
-        
         return sample
 
     def normalize_input_traj(self, input_traj: torch.Tensor) -> torch.Tensor:
@@ -82,19 +78,6 @@ class DeltaAwareNormalize:
         dec_in_thr_norm = (dec_in_thr - self.pos_mean[:2]) / (self.pos_std[:2] + self.eps)
         
         return torch.cat([dec_in_delta_norm, dec_in_thr_norm], dim=1)
-
-    def normalize_flightinfo(self, flightinfo: torch.Tensor) -> torch.Tensor:
-        """ Flightinfo [num_features] (typically [4]): 
-            - Runway position (x, y) at indices [0, 1] - normalized
-            - Runway bearing (sin, cos) at indices [2, 3] - not normalized
-        """
-        x_y_mean = self.pos_mean[:2]
-        x_y_std = self.pos_std[:2]
-
-        flightinfo_rwy_pos = flightinfo[:2]
-        remaining_features = flightinfo[2:]
-        flightinfo_rwy_pos_norm = (flightinfo_rwy_pos - x_y_mean) / (x_y_std + self.eps)
-        return torch.cat([flightinfo_rwy_pos_norm, remaining_features])
 
 
 class Denormalizer(nn.Module):

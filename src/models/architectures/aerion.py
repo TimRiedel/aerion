@@ -84,9 +84,9 @@ class Aerion(nn.Module, TrajectoryBackbone):
 
     def _initialize_context_encoders(self):
         if self.use_flightinfo:
-            flightinfo_input_dim = len(self.contexts_cfg.get("flightinfo", {}).get("features", []))
+            flightinfo_input_dim = self.contexts_cfg.get("flightinfo", {}).get("num_runways", 0)
             if flightinfo_input_dim == 0:
-                raise ValueError("Flightinfo input dimension is 0, but at least 1 feature is required")
+                raise ValueError("Flightinfo num_runways must be specified and > 0 when flightinfo is enabled")
             self.flightinfo_encoder = FlightInfoEncoder(d_model=self.d_model, input_dim=flightinfo_input_dim)
     
     def encode(

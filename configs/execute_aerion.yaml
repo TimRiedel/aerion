@@ -26,7 +26,7 @@ loss:
     mse: 0.0
     ade: 0.5
     fde: 0.5
-    alignment: 0.2
+    alignment: 0.5
   alignment_num_waypoints: 4      # Number of final waypoints (default: 4 = 90s with 30s spacing)
   alignment_scale_factor: 10000.0  # Scale to match ADE/FDE magnitude
 
@@ -41,15 +41,11 @@ scheduler:
 
 scheduled_sampling:
   enabled: true
-  teacher_forcing_epochs: 5
-  transition_epochs: 10
+  teacher_forcing_epochs: 3
+  transition_epochs: 7
 
 
 contexts:
   flightinfo:
     enabled: false
-    features:
-      - rwy_x
-      - rwy_y
-      - rwy_bearing_sin
-      - rwy_bearing_cos
+    num_runways: 4  # e.g., EDDB has 4 runways: 06L, 06R, 24L, 24R

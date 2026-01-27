@@ -49,8 +49,10 @@ class ApproachDataset(Dataset):
         self.feature_cols = feature_cols
 
         self.flightinfo_df = None
+        self.runway_categories = None
         if flightinfo_path is not None:
             self.flightinfo_df = pd.read_parquet(flightinfo_path).set_index("flight_id")
+            self.runway_categories = sorted(self.flightinfo_df["runway"].unique().tolist())
 
         self.flight_ids = sorted(self.inputs_df["flight_id"].unique().tolist())
         if num_trajectories_to_predict is not None:
@@ -149,11 +151,13 @@ class ApproachDataset(Dataset):
             raise ValueError("Flightinfo context is enabled but flightinfo_df is not loaded")
         
         flight_id_without_sample_index = re.sub(r"_S\d+$", "", flight_id) # Remove trailing _S+digits
-        row = self.flightinfo_df.loc[flight_id_without_sample_index]
-        features = self.contexts_cfg["flightinfo"]["features"]
-        values = row[features].values.astype(np.float32)
-        return torch.from_numpy(values)
+        flightinfo = self.flightinfo_df.loc[flight_id_without_sample_index]
 
+        # Create one-hot encoding for runway
+        one_hot = np.zeros(len(self.runway_categories), dtype=np.float32)
+        runway_idx = self.runway_categories.index(flightinfo["runway"])
+        one_hot[runway_idx] = 1.0
+        return torch.from_numpy(one_hot)
 
     def _pad_horizons(
         self,
