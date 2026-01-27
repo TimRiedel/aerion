@@ -14,7 +14,7 @@ defaults:
 experiment_name: "aerion-debug"
 
 trainer:
-  max_epochs: 20
+  max_epochs: 40
 
 optimizer:
   _target_: torch.optim.AdamW
@@ -35,6 +35,12 @@ data_processing:
 
 scheduler:
   warmup_epochs: 5
+
+scheduled_sampling:
+  enabled: true
+  teacher_forcing_epochs: 5
+  transition_epochs: 10
+
 
 contexts:
   flightinfo:

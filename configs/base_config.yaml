@@ -35,7 +35,7 @@ callbacks:
     _target_: pytorch_lightning.callbacks.EarlyStopping
     monitor: "val_loss"
     mode: "min"
-    patience: 5
+    patience: 20
     min_delta: 0.001
 
   learning_rate_monitor:
@@ -71,7 +71,7 @@ loss:
   _target_: models.metrics.CompositeApproachLoss
   use_3d: true
   weights:
-    mse: 1.0
+    mse: 0.0
     ade: 0.0
     fde: 0.0
 
