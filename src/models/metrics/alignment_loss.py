@@ -63,10 +63,12 @@ class RunwayAlignmentLoss(nn.Module):
         batch_size = pred_abs.size(0)
         losses = []
         
-        rwy_bearings_sin = runway[:, 2]  # [B]
-        rwy_bearings_cos = runway[:, 3]  # [B]
-        runway_directions = torch.stack([rwy_bearings_sin, rwy_bearings_cos], dim=-1)  # [B, 2]
-        
+        # Runway direction vector [B, 2]
+        rwy_bearing_sin = runway[:, 2]
+        rwy_bearing_cos = runway[:, 3]
+        runway_dirs = torch.stack([rwy_bearing_sin, rwy_bearing_cos], dim=-1)
+        runway_dirs = runway_dirs / (torch.norm(runway_dirs, dim=-1, keepdim=True) + self.epsilon)
+
         # Find valid trajectory lengths (excluding padding)
         valid_lengths = (~target_pad_mask).sum(dim=1)  # [B]
         
@@ -74,23 +76,20 @@ class RunwayAlignmentLoss(nn.Module):
         for b in range(batch_size):
             end_idx = valid_lengths[b].item()
             start_idx = end_idx - self.num_final_waypoints
-            
             final_positions = pred_abs[b, start_idx:end_idx, :2]  # [N, 2]
-            directions = final_positions[1:] - final_positions[:-1]  # [N-1, 2]
-            
-            dir_norms = torch.norm(directions, dim=-1, keepdim=True) + self.epsilon  # [N-1, 1]
-            directions_normalized = directions / dir_norms  # [N-1, 2]
+
+            dirs = final_positions[1:] - final_positions[:-1]  # [N-1, 2]
+            dirs_norm = torch.norm(dirs, dim=-1, keepdim=True) + self.epsilon  # [N-1, 1]
+            dirs_unit = dirs / dirs_norm  # [N-1, 2]
             
             # Cosine similarity: dot product of normalized vectors
-            flight_runway_dir = runway_directions[b:b+1, :]  # [1, 2]
-            cos_sim = (directions_normalized * flight_runway_dir).sum(dim=-1)  # [N-1]
-            
-            # Convert to loss: perfect alignment (1) -> 0 loss, opposite (-1) -> 2 loss
-            alignment_loss = (1.0 - cos_sim) / 2.0 # [N-1], range [0, 1]
+            flight_runway_dir = runway_dirs[b:b+1, :]  # [1, 2]
+            cos_sim = (dirs_unit * flight_runway_dir).sum(dim=-1)  # [N-1]
+            # Loss: squared difference between cosine similarity and 1
+            alignment_loss = (1.0 - cos_sim)**2
             
             # Average over all waypoints
             losses.append(alignment_loss.mean())
         
         total_loss = torch.stack(losses).mean() * self.scale_factor
-        
         return total_loss

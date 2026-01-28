@@ -27,7 +27,7 @@ loss:
     ade: 0.5
     fde: 0.5
     alignment: 0.5
-  alignment_num_waypoints: 4      # Number of final waypoints (default: 4 = 90s with 30s spacing)
+  alignment_num_waypoints: 6      # Number of final waypoints (default: 4 = 90s with 30s spacing)
   alignment_scale_factor: 10000.0  # Scale to match ADE/FDE magnitude
 
 dataloader:
@@ -43,7 +43,6 @@ scheduled_sampling:
   enabled: true
   teacher_forcing_epochs: 3
   transition_epochs: 7
-
 
 contexts:
   flightinfo:
