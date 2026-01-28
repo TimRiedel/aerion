@@ -1,11 +1,11 @@
 name: first10days
 
-train_inputs_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days/trajectories/EDDB_trajectories-inputs_2024-01-01_2024-12-31.parquet"
-train_horizons_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days/trajectories/EDDB_trajectories-horizons_2024-01-01_2024-12-31.parquet"
-test_inputs_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days/trajectories/EDDB_trajectories-inputs_2024-01-01_2024-12-31.parquet"
-test_horizons_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days/trajectories/EDDB_trajectories-horizons_2024-01-01_2024-12-31.parquet"
+train_inputs_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days-rwy24L/trajectories/EDDB_trajectories-inputs_2024-01-01_2024-12-31.parquet"
+train_horizons_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days-rwy24L/trajectories/EDDB_trajectories-horizons_2024-01-01_2024-12-31.parquet"
+test_inputs_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days-rwy24L/trajectories/EDDB_trajectories-inputs_2024-01-01_2024-12-31.parquet"
+test_horizons_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days-rwy24L/trajectories/EDDB_trajectories-horizons_2024-01-01_2024-12-31.parquet"
 
-flightinfo_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days/flightinfo/EDDB_flightinfo_2024-01-01_2024-12-31.parquet"
+flightinfo_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first10days-rwy24L/flightinfo/EDDB_flightinfo_2024-01-01_2024-12-31.parquet"
 
 input_time_minutes: 5
 horizon_time_minutes: 40
