@@ -182,6 +182,11 @@ class BaseModule(pl.LightningModule):
         for feature in ["X", "Y", "Altitude"]:
             self._horizon_line_plot(metrics["mae_per_horizon"], "MAE", prefix, feature)
             self._horizon_line_plot(metrics["rmse_per_horizon"], "RMSE", prefix, feature)
+        
+        self._log_histogram(metrics["traj_ade_2d_values"], "ADE2D", prefix)
+        self._log_histogram(metrics["traj_ade_3d_values"], "ADE3D", prefix)
+        self._log_histogram(metrics["traj_fde_2d_values"], "FDE2D", prefix)
+        self._log_histogram(metrics["traj_fde_3d_values"], "FDE3D", prefix)
 
     def _horizon_line_plot(self, metric: torch.Tensor, metric_name: str, prefix: str, feature_name: str = None):
         if feature_name is not None:
@@ -209,6 +214,36 @@ class BaseModule(pl.LightningModule):
 
         plot = wandb.plot.line(table, x_column, y_column, title=f"{full_metric_name} vs Horizon")
         self.logger.experiment.log({f"{category}/{full_metric_name}": plot})
+    
+    def _log_histogram(self, values: torch.Tensor, metric_name: str, prefix: str):
+        """
+        Log histogram of per-trajectory metric values.
+        
+        Args:
+            values: Tensor of per-trajectory metric values [N]
+            metric_name: Name of the metric (e.g., "ADE2D", "FDE3D")
+            prefix: Prefix for logging (e.g., "train", "val")
+        """
+        if values.numel() == 0:
+            return
+        
+        values_np = values.detach().cpu().numpy()
+        category = f"{prefix}-histograms"
+
+        data = [[i, float(value)] for i, value in enumerate(values_np)]
+        table = wandb.Table(
+            data=data,
+            columns=["step", metric_name],
+        )
+        fields = {"value": metric_name, "title": f"Histogram of {metric_name}"}
+        histogram = wandb.plot_table(
+            vega_spec_name="timriedel/histogram-binned",
+            data_table=table,
+            fields=fields,
+        )
+        self.logger.experiment.log({
+            f"{category}/hist-{metric_name}": histogram
+        })
 
     def _visualize_prediction_vs_targets(
         self,

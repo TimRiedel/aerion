@@ -29,18 +29,24 @@ class AccumulatedTrajectoryMetrics:
         # Per-horizon accumulators
         self.sum_abs_error = torch.zeros(H, F, device=self.device)
         self.sum_sq_error = torch.zeros(H, F, device=self.device)
-        self.sum_dist_2d = torch.zeros(H, device=self.device)
-        self.sum_dist_3d = torch.zeros(H, device=self.device)
+        self.sum_ade_2d = torch.zeros(H, device=self.device)
+        self.sum_ade_3d = torch.zeros(H, device=self.device)
         self.sum_fde_2d = torch.tensor(0.0, device=self.device)
         self.sum_fde_3d = torch.tensor(0.0, device=self.device)
         
         # Aggregate MDE accumulators (Max Displacement Error)
-        self.sum_max_dist_2d = torch.tensor(0.0, device=self.device)
-        self.sum_max_dist_3d = torch.tensor(0.0, device=self.device)
+        self.sum_mde_2d = torch.tensor(0.0, device=self.device)
+        self.sum_mde_3d = torch.tensor(0.0, device=self.device)
         
         # Count of valid waypoints and trajectories
         self.count_valid_waypoints = torch.zeros(H, device=self.device)  # Shape: [H]
         self.count_traj = torch.tensor(0.0, device=self.device)  # Shape: [1]
+        
+        # Per-trajectory ADE and FDE lists for histogram generation
+        self.traj_ade_2d_list = []
+        self.traj_ade_3d_list = []
+        self.traj_fde_2d_list = []
+        self.traj_fde_3d_list = []
     
     def update(
         self,
@@ -57,6 +63,8 @@ class AccumulatedTrajectoryMetrics:
             target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
         """
         valid_mask = ~target_pad_mask  # [B, H]
+        has_traj_valid_points = valid_mask.any(dim=1)  # [B]
+        valid_waypoints_per_traj = valid_mask.sum(dim=1).clamp(min=1)  # [B]
         last_valid_index = (valid_mask.sum(dim=1) - 1).clamp(min=0)  # [B]
         batch_indices = torch.arange(pred_abs.size(0), device=pred_abs.device)  # [B]
         
@@ -66,8 +74,8 @@ class AccumulatedTrajectoryMetrics:
         sq_err = diff ** 2
         
         # 2. Euclidean Distances [B, H]
-        dist_2d = torch.norm(diff[:, :, :2], dim=2)  # Position distances (X, Y)
-        dist_3d = torch.norm(diff[:, :, :3], dim=2)  # Position + altitude distances
+        ade_2d = torch.norm(diff[:, :, :2], dim=2)  # Position distances (X, Y)
+        ade_3d = torch.norm(diff[:, :, :3], dim=2)  # Position + altitude distances
         
         # 3. Masking
         # Zero out invalid entries for summation
@@ -75,28 +83,37 @@ class AccumulatedTrajectoryMetrics:
         valid_mask_unsqueezed = valid_mask.unsqueeze(-1)
         abs_err_masked = abs_err * valid_mask_unsqueezed
         sq_err_masked = sq_err * valid_mask_unsqueezed
-        dist_2d_masked = dist_2d * valid_mask
-        dist_3d_masked = dist_3d * valid_mask
-        fde_2d = dist_2d_masked[batch_indices, last_valid_index]
-        fde_3d = dist_3d_masked[batch_indices, last_valid_index]
+        ade_2d_masked = ade_2d * valid_mask
+        ade_3d_masked = ade_3d * valid_mask
+        fde_2d = ade_2d_masked[batch_indices, last_valid_index]
+        fde_3d = ade_3d_masked[batch_indices, last_valid_index]
         
         # 4. Accumulate per horizon (Sum over batch dimension)
         self.sum_abs_error += abs_err_masked.sum(dim=0)
         self.sum_sq_error += sq_err_masked.sum(dim=0)
-        self.sum_dist_2d += dist_2d_masked.sum(dim=0)
-        self.sum_dist_3d += dist_3d_masked.sum(dim=0)
+        self.sum_ade_2d += ade_2d_masked.sum(dim=0)
+        self.sum_ade_3d += ade_3d_masked.sum(dim=0)
         self.sum_fde_2d += fde_2d.sum()
         self.sum_fde_3d += fde_3d.sum()
+
+        # 5. Per-trajectory ADE calculation for histograms
+        # Compute ADE per trajectory: average distance across all valid waypoints
+        traj_ade_2d = ade_2d_masked.sum(dim=1) / valid_waypoints_per_traj  # [B]
+        traj_ade_3d = ade_3d_masked.sum(dim=1) / valid_waypoints_per_traj  # [B]
         
-        # 5. MDE (Max Displacement Error) calculation
+        self.traj_ade_2d_list.append(traj_ade_2d[has_traj_valid_points])
+        self.traj_ade_3d_list.append(traj_ade_3d[has_traj_valid_points])
+        self.traj_fde_2d_list.append(fde_2d[has_traj_valid_points])
+        self.traj_fde_3d_list.append(fde_3d[has_traj_valid_points])
+        
+        # 6. MDE (Max Displacement Error) calculation
         # Use masked max: set padded positions to -inf so they're ignored in max()
-        dist_2d_masked[~valid_mask] = -torch.inf
-        dist_3d_masked[~valid_mask] = -torch.inf
-        traj_max_dist_2d = dist_2d_masked.max(dim=1).values  # [B]
-        traj_max_dist_3d = dist_3d_masked.max(dim=1).values  # [B]
-        has_valid_points = valid_mask.any(dim=1)  # [B]
-        self.sum_max_dist_2d += traj_max_dist_2d[has_valid_points].sum()
-        self.sum_max_dist_3d += traj_max_dist_3d[has_valid_points].sum()
+        ade_2d_masked[~valid_mask] = -torch.inf
+        ade_3d_masked[~valid_mask] = -torch.inf
+        traj_mde_2d = ade_2d_masked.max(dim=1).values  # [B]
+        traj_mde_3d = ade_3d_masked.max(dim=1).values  # [B]
+        self.sum_mde_2d += traj_mde_2d[has_traj_valid_points].sum()
+        self.sum_mde_3d += traj_mde_3d[has_traj_valid_points].sum()
         
         self.count_valid_waypoints += valid_mask.sum(dim=0)
         self.count_traj += valid_mask.any(dim=1).sum()
@@ -125,17 +142,21 @@ class AccumulatedTrajectoryMetrics:
             - ade_3d_per_horizon: ADE per horizon step [horizon_seq_len]
             - mae_per_horizon: MAE per horizon step [horizon_seq_len, 3] (X, Y, Altitude)
             - rmse_per_horizon: RMSE per horizon step [horizon_seq_len, 3] (X, Y, Altitude)
+            - traj_ade_2d_values: List of per-trajectory ADE 2D values for histograms
+            - traj_ade_3d_values: List of per-trajectory ADE 3D values for histograms
+            - traj_fde_2d_values: List of per-trajectory FDE 2D values for histograms
+            - traj_fde_3d_values: List of per-trajectory FDE 3D values for histograms
         """
         # Reduce tensors for distributed training if needed
         tensors_to_reduce = [
             self.sum_abs_error,
             self.sum_sq_error,
-            self.sum_dist_2d,
-            self.sum_dist_3d,
+            self.sum_ade_2d,
+            self.sum_ade_3d,
             self.sum_fde_2d,
             self.sum_fde_3d,
-            self.sum_max_dist_2d,
-            self.sum_max_dist_3d,
+            self.sum_mde_2d,
+            self.sum_mde_3d,
             self.count_valid_waypoints,
             self.count_traj,
         ]
@@ -149,14 +170,14 @@ class AccumulatedTrajectoryMetrics:
         total_trajectories = self.count_traj.clamp(min=1.0)                   # Scalar
         
         # 1. ADE (Average of Euclidean Distance per valid waypoint)
-        ade_2d_per_horizon = self.sum_dist_2d / valid_points_per_horizon  # Shape: [H]
-        ade_3d_per_horizon = self.sum_dist_3d / valid_points_per_horizon  # Shape: [H]
-        ade_2d_scalar = self.sum_dist_2d.sum() / total_valid_points       # Scalar
-        ade_3d_scalar = self.sum_dist_3d.sum() / total_valid_points       # Scalar
+        ade_2d_per_horizon = self.sum_ade_2d / valid_points_per_horizon  # Shape: [H]
+        ade_3d_per_horizon = self.sum_ade_3d / valid_points_per_horizon  # Shape: [H]
+        ade_2d_scalar = self.sum_ade_2d.sum() / total_valid_points       # Scalar
+        ade_3d_scalar = self.sum_ade_3d.sum() / total_valid_points       # Scalar
         
         # 2. MDE (Average Max Displacement Error)
-        mde_2d_scalar = self.sum_max_dist_2d / total_trajectories  # Scalar
-        mde_3d_scalar = self.sum_max_dist_3d / total_trajectories  # Scalar
+        mde_2d_scalar = self.sum_mde_2d / total_trajectories  # Scalar
+        mde_3d_scalar = self.sum_mde_3d / total_trajectories  # Scalar
         
         # 3. FDE (Average Final Displacement Error)
         fde_2d_scalar = self.sum_fde_2d / total_trajectories  # Scalar
@@ -166,6 +187,15 @@ class AccumulatedTrajectoryMetrics:
         valid_points_per_horizon_unsqueezed = valid_points_per_horizon.unsqueeze(1)  # Shape: [H, 1]
         mae_per_horizon = self.sum_abs_error / valid_points_per_horizon_unsqueezed  # Shape: [H, F]
         rmse_per_horizon = torch.sqrt(self.sum_sq_error / valid_points_per_horizon_unsqueezed)  # Shape: [H, F]
+        
+        # 5. Concatenate per-trajectory ADE/FDE values for histograms
+        traj_ade_2d_values = torch.cat(self.traj_ade_2d_list)
+        traj_ade_3d_values = torch.cat(self.traj_ade_3d_list)
+        traj_fde_2d_values = torch.cat(self.traj_fde_2d_list)
+        traj_fde_3d_values = torch.cat(self.traj_fde_3d_list)
+        
+        if strategy is not None and hasattr(strategy, "world_size") and strategy.world_size > 1:
+            raise NotImplementedError("Gathering trajectory metrics across multiple GPUs is not implemented.")
         
         return {
             "ade_2d_scalar": ade_2d_scalar,
@@ -178,4 +208,8 @@ class AccumulatedTrajectoryMetrics:
             "ade_3d_per_horizon": ade_3d_per_horizon,
             "mae_per_horizon": mae_per_horizon,
             "rmse_per_horizon": rmse_per_horizon,
+            "traj_ade_2d_values": traj_ade_2d_values,
+            "traj_ade_3d_values": traj_ade_3d_values,
+            "traj_fde_2d_values": traj_fde_2d_values,
+            "traj_fde_3d_values": traj_fde_3d_values,
         }
