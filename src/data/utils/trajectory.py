@@ -2,23 +2,6 @@ import torch
 from data.transforms.normalize import Denormalizer
 
 
-def compute_threshold_features(
-    positions_xy: torch.Tensor,
-    threshold_xy: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Compute displacement features from positions to threshold.
-    
-    Args:
-        positions_xy: Position coordinates [*, 2] (x, y)
-        threshold_xy: Threshold coordinates [2] or broadcastable shape
-        
-    Returns:
-        Displacement features (dx_to_thr, dy_to_thr) as [*, 2]
-    """
-    return threshold_xy - positions_xy
-
-
 def reconstruct_absolute_from_deltas(
     input_traj: torch.Tensor,
     target_deltas: torch.Tensor,

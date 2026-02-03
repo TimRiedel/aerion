@@ -23,21 +23,20 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     num_visualized_traj = cfg.get("execution", {}).get("num_visualized_traj", 10)
     contexts_cfg = cfg.get("contexts", {})
 
-    data = AerionData(
-        cfg["dataset"],
-        cfg["data_processing"],
-        cfg["dataloader"],
-        cfg.seed,
-        num_trajectories_to_predict=num_trajectories_to_predict,
-        num_waypoints_to_predict=horizon_seq_len,
-        contexts_cfg=contexts_cfg,
-    )
-    
     # Instantiate correct module based on model name
     model_cfg = OmegaConf.to_container(cfg["model"], resolve=True) # Convert to regular dict to allow modifications
     optimizer_cfg = OmegaConf.to_container(cfg["optimizer"], resolve=True)
 
     if cfg["model"]["name"] == "aerion":
+        data = AerionData(
+            cfg["dataset"],
+            cfg["data_processing"],
+            cfg["dataloader"],
+            cfg.seed,
+            num_trajectories_to_predict=num_trajectories_to_predict,
+            num_waypoints_to_predict=horizon_seq_len,
+            contexts_cfg=contexts_cfg,
+        )
         model = AerionModule(
             model_cfg,
             optimizer_cfg,
@@ -50,6 +49,14 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             num_visualized_traj=num_visualized_traj,
         )
     else:
+        data = ApproachData(
+            cfg["dataset"],
+            cfg["data_processing"],
+            cfg["dataloader"],
+            cfg.seed,
+            num_trajectories_to_predict=num_trajectories_to_predict,
+            num_waypoints_to_predict=horizon_seq_len,
+        )
         model = TransformerModule(
             model_cfg,
             optimizer_cfg,

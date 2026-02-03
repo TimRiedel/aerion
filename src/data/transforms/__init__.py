@@ -1,2 +1,2 @@
-from .normalize import DeltaAwareNormalize, Denormalizer
+from .normalize import FeatureSliceNormalizer, Denormalizer
 from .noise import DecoderInputNoise
