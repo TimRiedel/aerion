@@ -6,9 +6,9 @@ params:
   _target_: models.architectures.aerion.Aerion
   batch_first: true
 
-  encoder_input_dim: 8  # absolute positions + deltas + threshold features (x, y, alt, dx, dy, dalt, thr_dx, thr_dy)
-  decoder_input_dim: 5  # deltas + threshold features (dx, dy, dalt, thr_dx, thr_dy)
-  output_dim: 3         # predicted deltas only (dx, dy, dalt)
+  encoder_input_dim: 14  # 3 absolute positions + 3 deltas + 8 centerline features
+  decoder_input_dim: 11  # 3 deltas + 8 threshold features
+  output_dim: 3          # predicted deltas only (dx, dy, dalt)
   d_model: 128
   nhead: 8
   num_encoder_layers: 6

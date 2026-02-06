@@ -27,22 +27,22 @@ loss:
     ade: 0.5
     fde: 0.5
     alignment: 0.5
-  alignment_num_waypoints: 4      # Number of final waypoints (default: 4 = 90s with 30s spacing)
+  alignment_num_waypoints: 7       # Number of final waypoints (default: 4 = 90s with 30s spacing)
   alignment_scale_factor: 10000.0  # Scale to match ADE/FDE magnitude
-
-dataloader:
-  batch_size: 3072
-
-data_processing:
-  feature_cols: ["x_coord", "y_coord", "altitude"]
 
 scheduler:
   warmup_epochs: 5
 
 scheduled_sampling:
   enabled: true
-  teacher_forcing_epochs: 3
-  transition_epochs: 7
+  teacher_forcing_epochs: 1
+  transition_epochs: 15
+
+dataloader:
+  batch_size: 3072
+
+data_processing:
+  feature_cols: ["x_coord", "y_coord", "altitude"]
 
 
 contexts:

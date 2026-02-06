@@ -27,13 +27,6 @@ python src/main.py --config-name=execute_aerion \
     dataset=single_day \
     trainer.limit_train_batches=1 \
     trainer.limit_val_batches=1 \
-    contexts.flightinfo.enabled=false \
-    loss.weights.mse=0.0 \
-    loss.weights.ade=0.5 \
-    loss.weights.fde=0.5 \
-    loss.weights.alignment=0.2 \
-    loss.alignment_scale_factor=10000.0 \
-    scheduled_sampling.enabled=true \
 
     # execution.num_waypoints_to_predict=10 \
     # trainer.fast_dev_run=True \
