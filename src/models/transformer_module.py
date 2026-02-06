@@ -1,18 +1,42 @@
+from data.transforms.normalize import Denormalizer
 import torch
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from models.base_module import BaseModule
-from data.utils.trajectory import compute_threshold_features
+from torch.utils import checkpoint
 
 
 class TransformerModule(BaseModule):
-    def training_step(self, batch, batch_idx):
-        input_traj, target_traj, dec_in_traj, target_pad_mask = batch["input_traj"], batch["target_traj"], batch["dec_in_traj"], batch["mask_traj"]
+    def on_fit_start(self):
+        dm = self.trainer.datamodule
+        
+        # Inputs are [Pos(3) + Delta(3)]
+        input_mean = torch.cat([dm.pos_mean, dm.delta_mean], dim=0)
+        input_std = torch.cat([dm.pos_std, dm.delta_std], dim=0)
+        
+        self.denormalize_inputs = Denormalizer(input_mean, input_std)
+        self.denormalize_target_deltas = Denormalizer(dm.delta_mean, dm.delta_std)
 
-        pred_traj = self._predict_teacher_forcing(input_traj, dec_in_traj, target_pad_mask)
+        # Register as submodules so they're moved to the correct device automatically
+        self.add_module("denormalize_inputs", self.denormalize_inputs)
+        self.add_module("denormalize_target_deltas", self.denormalize_target_deltas)
+        self.denormalize_inputs.to(self.device)
+        self.denormalize_target_deltas.to(self.device)
+
+    def training_step(self, batch, batch_idx):
+        input_traj = batch["input_traj"]
+        target_traj = batch["target_traj"]
+        dec_in_traj = batch["dec_in_traj"]
+        target_pad_mask = batch["mask_traj"]
+        runway_bearing = batch["runway"]["bearing"]
+
+        if self.scheduled_sampling_enabled:
+            pred_traj = self._predict_scheduled_sampling(input_traj, dec_in_traj, target_traj, target_pad_mask, batch_idx)
+        else:
+            pred_traj, _ = self._predict_teacher_forcing(input_traj, dec_in_traj, target_pad_mask)
         input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
 
-        loss = self.loss(pred_abs, target_abs, target_pad_mask)
+        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway_bearing)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
         
         self.train_metrics.update(pred_abs, target_abs, target_pad_mask)
@@ -28,12 +52,12 @@ class TransformerModule(BaseModule):
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
         target_pad_mask = batch["mask_traj"]
-        threshold_xy = batch["threshold_xy"]
+        runway_bearing = batch["runway"]["bearing"]
         
-        pred_traj = self._predict_autoregressively(input_traj, dec_in_traj, threshold_xy)
+        pred_traj, _ = self._predict_autoregressively(input_traj, dec_in_traj)
         input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
 
-        loss = self.loss(pred_abs, target_abs, target_pad_mask)
+        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway_bearing)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
 
         self.val_metrics.update(pred_abs, target_abs, target_pad_mask)
@@ -45,82 +69,158 @@ class TransformerModule(BaseModule):
         raise NotImplementedError("Test step not implemented")
 
 
-    def _predict_teacher_forcing(self, input_traj: torch.Tensor, dec_in_traj: torch.Tensor, target_pad_mask: torch.Tensor) -> torch.Tensor:
-        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.horizon_seq_len, dtype=torch.bool).to(input_traj.device)
-        pred_traj = self.model(
-            input_traj=input_traj,
-            dec_in_traj=dec_in_traj,
+    # --------------------------------------
+    # Prediction functions
+    # --------------------------------------
+
+    def _predict_teacher_forcing(
+        self,
+        input_traj: torch.Tensor,
+        dec_in_traj: torch.Tensor,
+        target_pad_mask: torch.Tensor,
+        num_steps: Optional[int] = None,
+        memory: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Predict using teacher forcing.
+        
+        Args:
+            input_traj: Normalized input trajectory [B, T_in, input_features]
+            dec_in_traj: Normalized decoder input (ground truth) [B, H, dec_in_features]
+            target_pad_mask: Padding mask [B, H]
+            num_steps: Number of steps to predict (default: horizon_seq_len)
+            memory: Pre-computed encoder memory (optional, will encode if None)
+            
+        Returns:
+            Tuple of (predictions [B, num_steps, 3], memory)
+        """
+        num_steps = num_steps or self.horizon_seq_len
+        
+        if memory is None:
+            memory = self.model.encode(input_traj)
+        
+        # Slice inputs to num_steps
+        dec_in = dec_in_traj[:, :num_steps, :]
+        pad_mask = target_pad_mask[:, :num_steps] if target_pad_mask is not None else None
+        
+        causal_mask = self._generate_causal_mask(num_steps, input_traj.device)
+        pred_traj = self.model.decode(
+            dec_in,
+            memory,
             causal_mask=causal_mask,
-            target_pad_mask=target_pad_mask 
+            target_pad_mask=pad_mask,
         )
-        return pred_traj
+        return pred_traj, memory
 
     
     def _predict_autoregressively(
-        self, 
-        input_traj: torch.Tensor, 
-        dec_in_traj: torch.Tensor, 
-        threshold_xy: torch.Tensor
-    ) -> torch.Tensor:
-        """Predict autoregressively (inference mode).
+        self,
+        input_traj: torch.Tensor,
+        dec_in_traj: torch.Tensor,
+        num_steps: Optional[int] = None,
+        memory: Optional[torch.Tensor] = None,
+        continued_decoding = False,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Predict autoregressively.
         
         Args:
-            input_traj: Normalized input trajectory [B, T_in, 8]
-            dec_in_traj: Normalized decoder input [B, H, 5] (only first token used)
-            threshold_xy: Threshold coordinates [B, 2]
-            
+            input_traj: Normalized input trajectory [B, T_in, input_features]
+            dec_in_traj: Normalized decoder input [B, H, dec_in_features] - used for initial token or as prefix
+            num_steps: Number of steps to predict (default: horizon_seq_len)
+            memory: Pre-computed encoder memory (optional, will encode if None)
+            continued_decoding: Whether to take the full dec_in_traj as the initial decoder input (True) or only the first token (False)
         Returns:
-            Predicted deltas [B, H, 3]
+            Tuple of (predictions [B, num_steps, 3], memory)
         """
-        # 1. Encode once
-        memory = self.model.encode(input_traj)  # Shape: [Batch, Max_Input_Len, d_model]
+        num_steps = num_steps or self.horizon_seq_len
+        
+        # Encode if memory not provided
+        if memory is None:
+            memory = self.model.encode(input_traj)
 
-        # 2. Get denormalized last input position for tracking current position
-        input_abs = self.denormalize_inputs(input_traj)
-        current_position = input_abs[:, -1, :3].clone()  # [B, 3] - last position (x, y, alt)
+        # Initialize decoder input either with the full dec_in_traj (for continued decoding) or only the first token
+        current_dec_in = dec_in_traj if continued_decoding else dec_in_traj[:, 0:1, :]
 
-        # 3. Initialize: Start with the first token of dec_in_traj
-        current_dec_in = dec_in_traj[:, 0:1, :]  # [B, 1, 5]
+        # Autoregressive loop
         all_predictions = []
-
-        # 4. Autoregressive loop
-        for i in range(self.horizon_seq_len):
+        for i in range(num_steps):
             current_seq_len = current_dec_in.size(1)
-            target_mask = self.model.transformer.generate_square_subsequent_mask(
-                current_seq_len, dtype=torch.bool, device=input_traj.device
-            )
-
-            output = self.model.decode(
-                current_dec_in, 
-                memory, 
-                causal_mask=target_mask,
-                target_pad_mask=None,  # No padding mask during autoregressive validation to avoid sequence length leakage
-            )
-            next_step_pred = output[:, -1:, :]  # [B, 1, 3] - predicted delta (normalized)
+            target_mask = self._generate_causal_mask(current_seq_len, input_traj.device)
+            
+            # Use gradient checkpointing during training to save memory
+            if self.training:
+                output = checkpoint.checkpoint(
+                    lambda dec_in, mem, mask, pad_mask: self.model.decode(
+                        dec_in, mem, causal_mask=mask, target_pad_mask=pad_mask
+                    ),
+                    current_dec_in,
+                    memory,
+                    target_mask,
+                    None,
+                    use_reentrant=False,
+                )
+            else:
+                output = self.model.decode(
+                    current_dec_in,
+                    memory,
+                    causal_mask=target_mask,
+                    target_pad_mask=None,  # No padding mask during AR to avoid sequence length leakage
+                )
+            next_step_pred = output[:, -1:, :]  # [B, 1, output_features]
             all_predictions.append(next_step_pred)
             
-            # Update current position with denormalized predicted delta
-            pred_delta_denorm = self.denormalize_target_deltas(next_step_pred)  # [B, 1, 3]
-            current_position = current_position + pred_delta_denorm[:, 0, :]  # [B, 3]
-            
-            # Compute new threshold features for next decoder input
-            new_thr_features = compute_threshold_features(
-                current_position[:, :2],  # [B, 2] - x, y only
-                threshold_xy              # [B, 2]
-            )  # [B, 2]
-            
-            # Normalize threshold features using position stats
-            pos_mean_xy = self.denormalize_inputs.mean[:2]  # [2]
-            pos_std_xy = self.denormalize_inputs.std[:2]    # [2]
-            new_thr_features_norm = (new_thr_features - pos_mean_xy) / pos_std_xy  # [B, 2]
-            
-            # Build next decoder input: [predicted_delta_norm, thr_features_norm]
-            next_dec_in = torch.cat([
-                next_step_pred,                        # [B, 1, 3]
-                new_thr_features_norm.unsqueeze(1)     # [B, 1, 2]
-            ], dim=-1)  # [B, 1, 5]
-            
-            current_dec_in = torch.cat([current_dec_in, next_dec_in], dim=1)
+            current_dec_in = torch.cat([current_dec_in, next_step_pred], dim=1)
 
-        pred_traj = torch.cat(all_predictions, dim=1)  # [B, H, 3]
+        pred_traj = torch.cat(all_predictions, dim=1)  # [B, num_steps, output_features]
+        return pred_traj, memory
+
+
+    def _predict_scheduled_sampling(
+        self,
+        input_traj: torch.Tensor,
+        dec_in_traj: torch.Tensor,
+        target_traj: torch.Tensor,
+        target_pad_mask: torch.Tensor,
+        batch_idx: int,
+    ) -> torch.Tensor:
+        tf_steps = self._compute_teacher_forcing_steps()
+        ar_steps = self.horizon_seq_len - tf_steps
+        
+        # Log the current scheduled sampling state (once per epoch, on first batch)
+        if batch_idx == 0:
+            self.log("train/teacher_forcing_steps", float(tf_steps), on_step=False, on_epoch=True, batch_size=len(input_traj))
+            self.log("train/autoregressive_steps", float(ar_steps), on_step=False, on_epoch=True, batch_size=len(input_traj))
+        
+        # Special case: Full teacher forcing
+        if tf_steps >= self.horizon_seq_len:
+            pred_traj, _ = self._predict_teacher_forcing(
+                input_traj, dec_in_traj, target_pad_mask
+            )
+            return pred_traj
+        
+        # Special case: Full autoregressive
+        if tf_steps <= 0:
+            pred_traj, _ = self._predict_autoregressively(
+                input_traj, dec_in_traj
+            )
+            return pred_traj
+        
+        # Mixed mode: Teacher forcing prefix + autoregressive suffix
+        # Teacher forcing phase
+        tf_pred, memory = self._predict_teacher_forcing(
+            input_traj, dec_in_traj, target_pad_mask, num_steps=tf_steps
+        )
+
+        last_tf_pred = tf_pred[:, -1:, :]
+        ar_start_dec_in = torch.cat([dec_in_traj[:, :tf_steps, :], last_tf_pred], dim=1)
+        
+        # Autoregressive phase
+        ar_pred, _, _ = self._predict_autoregressively(
+            input_traj, ar_start_dec_in,
+            num_steps=ar_steps,
+            memory=memory,
+            continued_decoding=True,
+        )
+        
+        # Concatenate predictions
+        pred_traj = torch.cat([tf_pred, ar_pred], dim=1)  # [B, H, 3]
         return pred_traj

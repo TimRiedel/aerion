@@ -57,7 +57,7 @@ class CompositeApproachLoss(nn.Module):
         pred_abs: torch.Tensor,
         target_abs: torch.Tensor,
         target_pad_mask: torch.Tensor,
-        runway: torch.Tensor,
+        runway_bearing: torch.Tensor,
     ):
         """
         Compute composite loss combining MSE, ADE, FDE, and optionally Alignment.
@@ -66,8 +66,7 @@ class CompositeApproachLoss(nn.Module):
             pred_abs: Predicted absolute positions [B, H, 3] (in meters)
             target_abs: Target absolute positions [B, H, 3] (in meters)
             target_pad_mask: Padding mask [B, H] (True for padded positions)
-            runway: Tensor [B, 2] or [B, 4]. First 2 elements are threshold_xy.
-                    If size 4, elements 2-3 are bearing_sin/cos (required if alignment weight > 0).
+            runway_bearing: Tensor [B, 2] with [bearing_sin, bearing_cos] needed for alignment loss
             
         Returns:
             Scalar loss value (weighted sum of all enabled loss components)
@@ -87,12 +86,7 @@ class CompositeApproachLoss(nn.Module):
             loss += self.weight_fde * loss_fde
 
         if self.weight_alignment > 0:
-            if runway.size(-1) < 4:
-                raise ValueError(
-                    "Runway bearing data required for alignment loss (runway tensor must have 4 elements). "
-                    "Ensure flightinfo_path is provided in dataset config."
-                )
-            loss_alignment = self.alignment_loss(pred_abs, target_abs, target_pad_mask, runway)
+            loss_alignment = self.alignment_loss(pred_abs, target_abs, target_pad_mask, runway_bearing)
             loss += self.weight_alignment * loss_alignment
 
         return loss

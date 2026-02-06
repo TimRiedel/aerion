@@ -46,7 +46,7 @@ class RunwayAlignmentLoss(nn.Module):
         pred_abs: torch.Tensor,
         target_abs: torch.Tensor,
         target_pad_mask: torch.Tensor,
-        runway: torch.Tensor,
+        runway_bearing: torch.Tensor,
     ) -> torch.Tensor:
         """
         Compute runway alignment loss.
@@ -55,17 +55,13 @@ class RunwayAlignmentLoss(nn.Module):
             pred_abs: Predicted absolute positions [B, H, 3] (x, y, altitude in meters)
             target_abs: Target absolute positions [B, H, 3] (not used, kept for API consistency)
             target_pad_mask: Padding mask [B, H] (True for padded positions)
-            runway: Tensor [B, 4] with [threshold_x, threshold_y, bearing_sin, bearing_cos]
+            runway_bearing: Tensor [B, 2] with [bearing_sin, bearing_cos]
             
         Returns:
             Scalar loss value (scaled)
         """
         batch_size = pred_abs.size(0)
         losses = []
-        
-        rwy_bearings_sin = runway[:, 2]  # [B]
-        rwy_bearings_cos = runway[:, 3]  # [B]
-        runway_directions = torch.stack([rwy_bearings_sin, rwy_bearings_cos], dim=-1)  # [B, 2]
         
         # Find valid trajectory lengths (excluding padding)
         valid_lengths = (~target_pad_mask).sum(dim=1)  # [B]
@@ -82,8 +78,8 @@ class RunwayAlignmentLoss(nn.Module):
             directions_normalized = directions / dir_norms  # [N-1, 2]
             
             # Cosine similarity: dot product of normalized vectors
-            flight_runway_dir = runway_directions[b:b+1, :]  # [1, 2]
-            cos_sim = (directions_normalized * flight_runway_dir).sum(dim=-1)  # [N-1]
+            flight_runway_bearing = runway_bearing[b:b+1, :]  # [1, 2]
+            cos_sim = (directions_normalized * flight_runway_bearing).sum(dim=-1)  # [N-1]
             
             # Convert to loss: perfect alignment (1) -> 0 loss, opposite (-1) -> 2 loss
             alignment_loss = (1.0 - cos_sim) / 2.0 # [N-1], range [0, 1]

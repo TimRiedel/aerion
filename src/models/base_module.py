@@ -6,8 +6,8 @@ import pytorch_lightning as pl
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+from torch import nn
 
-from data.transforms.normalize import Denormalizer
 from models.metrics import ADELoss, AccumulatedTrajectoryMetrics
 from data.utils.trajectory import reconstruct_absolute_from_deltas
 from visualization.predictions_targets import plot_predictions_targets
@@ -22,6 +22,7 @@ class BaseModule(pl.LightningModule):
         horizon_seq_len: int,
         scheduler_cfg: DictConfig = None,
         loss_cfg: DictConfig = None,
+        scheduled_sampling_cfg: DictConfig = None,
         num_visualized_traj: int = 10,
     ):
         super().__init__()
@@ -38,9 +39,14 @@ class BaseModule(pl.LightningModule):
         else:
             self.loss = ADELoss()
         
+        scheduled_sampling_cfg = scheduled_sampling_cfg or {}
+        self.scheduled_sampling_enabled = scheduled_sampling_cfg.get("enabled", False)
+        self.teacher_forcing_epochs = scheduled_sampling_cfg.get("teacher_forcing_epochs", 10)
+        self.transition_epochs = scheduled_sampling_cfg.get("transition_epochs", 20)
+
         # Initialize metric accumulators (will be properly initialized in epoch start hooks)
         self.val_metrics = None
-        self.train_metrics = None
+        self.train_metrics = None 
         
 
     # --------------------------------------
@@ -78,24 +84,29 @@ class BaseModule(pl.LightningModule):
 
 
     # --------------------------------------
-    # Normalization storage
+    # Scheduled Sampling
     # --------------------------------------
 
-    def on_fit_start(self):
-        dm = self.trainer.datamodule
+    def _compute_teacher_forcing_steps(self) -> int:
+        """Compute the number of teacher forcing steps based on current epoch."""
+        current_epoch = self.current_epoch
         
-        # Inputs are [Pos(3) + Delta(3) + ThresholdFeatures(2)]
-        input_mean = torch.cat([dm.pos_mean, dm.delta_mean, dm.pos_mean[:2]], dim=0)
-        input_std = torch.cat([dm.pos_std, dm.delta_std, dm.pos_std[:2]], dim=0)
+        # Phase 1: Full teacher forcing
+        if current_epoch < self.teacher_forcing_epochs:
+            return self.horizon_seq_len
         
-        self.denormalize_inputs = Denormalizer(input_mean, input_std)
-        self.denormalize_target_deltas = Denormalizer(dm.delta_mean, dm.delta_std)
-
-        # Register as submodules so they're moved to the correct device automatically
-        self.add_module("denormalize_inputs", self.denormalize_inputs)
-        self.add_module("denormalize_target_deltas", self.denormalize_target_deltas)
-        self.denormalize_inputs.to(self.device)
-        self.denormalize_target_deltas.to(self.device)
+        # Phase 2: Linear transition
+        transition_start = self.teacher_forcing_epochs
+        transition_end = self.teacher_forcing_epochs + self.transition_epochs
+        
+        if current_epoch < transition_end:
+            # Linear interpolation: horizon_seq_len -> 0
+            progress = (current_epoch - transition_start) / self.transition_epochs
+            tf_steps = int(self.horizon_seq_len * (1 - progress))
+            return tf_steps
+        
+        # Phase 3: Full autoregressive
+        return 0
         
 
     # --------------------------------------
@@ -281,6 +292,13 @@ class BaseModule(pl.LightningModule):
                 f"{prefix}-predictions-targets/batch_{batch_idx}_traj_{i}": wandb.Image(fig)
             })
             plt.close(fig)
+
+    # --------------------------------------
+    # Utility
+    # --------------------------------------
+
+    def _generate_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
+        return nn.Transformer.generate_square_subsequent_mask(seq_len, dtype=torch.bool, device=device)
 
 
 
