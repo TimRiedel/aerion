@@ -48,7 +48,7 @@ class AerionDataset(ApproachDataset):
         input_traj_pos, input_traj_deltas, target_traj_pos, target_traj_deltas, dec_in_pos, dec_in_deltas, mask_traj = self._compute_inputs_outputs(idx)
 
         runway_data = self._get_runway_data(flight_id)
-        threshold_xy = runway_data["xy"]
+        threshold_xy = runway_data["xyz"][:2]  # [2]
         centerline_points_xy = runway_data["centerline_points_xy"]
 
         # Input: Append distances to runway and centerline points to input trajectory

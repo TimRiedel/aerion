@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import MSELoss
 from .ade_loss import ADELoss
 from .fde_loss import FDELoss
-from .alignment_loss import RunwayAlignmentLoss
+from .ils_alignment_loss import ILSAlignmentLoss
 
 
 class CompositeApproachLoss(nn.Module):
@@ -46,7 +46,7 @@ class CompositeApproachLoss(nn.Module):
         self.mse = MSELoss()
         self.ade = ADELoss(use_3d=use_3d, epsilon=epsilon)
         self.fde = FDELoss(use_3d=use_3d, epsilon=epsilon)
-        self.alignment_loss = RunwayAlignmentLoss(
+        self.alignment_loss = ILSAlignmentLoss(
             num_final_waypoints=alignment_num_waypoints,
             scale_factor=alignment_scale_factor,
             epsilon=epsilon,
@@ -57,7 +57,7 @@ class CompositeApproachLoss(nn.Module):
         pred_abs: torch.Tensor,
         target_abs: torch.Tensor,
         target_pad_mask: torch.Tensor,
-        runway_bearing: torch.Tensor,
+        runway: dict,
     ):
         """
         Compute composite loss combining MSE, ADE, FDE, and optionally Alignment.
@@ -66,7 +66,7 @@ class CompositeApproachLoss(nn.Module):
             pred_abs: Predicted absolute positions [B, H, 3] (in meters)
             target_abs: Target absolute positions [B, H, 3] (in meters)
             target_pad_mask: Padding mask [B, H] (True for padded positions)
-            runway_bearing: Tensor [B, 2] with [bearing_sin, bearing_cos] needed for alignment loss
+            runway: Dictionary containing "xyz" coordinates and "bearing" in sin, cos format.
             
         Returns:
             Scalar loss value (weighted sum of all enabled loss components)
@@ -86,7 +86,7 @@ class CompositeApproachLoss(nn.Module):
             loss += self.weight_fde * loss_fde
 
         if self.weight_alignment > 0:
-            loss_alignment = self.alignment_loss(pred_abs, target_abs, target_pad_mask, runway_bearing)
+            loss_alignment = self.alignment_loss(pred_abs, target_abs, target_pad_mask, runway)
             loss += self.weight_alignment * loss_alignment
 
         return loss

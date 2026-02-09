@@ -21,7 +21,7 @@ def compute_dx_dy_bearing(
     """
     return reference_xy - positions_xy
 
-def construct_runway_features(unique_airport_runways: List[Tuple[str, str]]) -> torch.Tensor:
+def construct_runway_features(unique_airport_runways: List[Tuple[str, str]], distance_nm: List[float] = [4, 8, 32]) -> torch.Tensor:
     runway_features = {}
 
     for airport_runway in unique_airport_runways:
@@ -33,22 +33,33 @@ def construct_runway_features(unique_airport_runways: List[Tuple[str, str]]) -> 
         airport_lat, airport_lon = airports[airport].latlon
         rwy_lat, rwy_lon, rwy_bearing = runway.latitude, runway.longitude, runway.bearing
         rwy_x, rwy_y = get_transformer_wgs84_to_aeqd(ref_lat=airport_lat, ref_lon=airport_lon).transform(rwy_lon, rwy_lat)
-        threshold_xy = torch.tensor([rwy_x, rwy_y], dtype=torch.float32)
+
+        # Compute runway length in meters by finding distance between thresholds
+        # Find the opposite threshold (other end of the runway)
+        threshold_opposite = next(t for t in thresholds if t.name != rwy_name)
+        opp_lat, opp_lon = threshold_opposite.latitude, threshold_opposite.longitude
+        opp_x, opp_y = get_transformer_wgs84_to_aeqd(ref_lat=airport_lat, ref_lon=airport_lon).transform(opp_lon, opp_lat)
+        length_m = torch.norm(torch.tensor([rwy_x - opp_x, rwy_y - opp_y]))
+        
+        airport_altitude_ft = airports[airport].altitude
+        airport_altitude_m = airport_altitude_ft * 0.3048  # Convert feet to meters
+        threshold_altitude_m = airport_altitude_m + 15.24  # Add 50ft screen height over threshold
+        threshold_xyz = torch.tensor([rwy_x, rwy_y, threshold_altitude_m], dtype=torch.float32)
 
         bearing_sin = torch.sin(torch.tensor(rwy_bearing * 2 * np.pi / 360))
         bearing_cos = torch.cos(torch.tensor(rwy_bearing * 2 * np.pi / 360))
         bearing = torch.stack([bearing_sin, bearing_cos], dim=-1)
 
-        distances_nm = [4, 8, 32]
         centerline_points_xy = []
-        for dist in distances_nm:
-            centerline_xy = compute_extended_centerline_point(threshold_xy, bearing, dist)
+        for dist in distance_nm:
+            centerline_xy = compute_extended_centerline_point(threshold_xyz[:2], bearing, dist)
             centerline_points_xy.append(centerline_xy)
 
         runway_features[f"{airport}-{rwy_name}"] = {
-            "xy": threshold_xy,
+            "xyz": threshold_xyz,
             "bearing": bearing,
-            "centerline_points_xy": centerline_points_xy
+            "length": length_m,
+            "centerline_points_xy": centerline_points_xy,
         }
 
     return runway_features
@@ -64,13 +75,14 @@ def compute_extended_centerline_point(
     This extends the centerline in the approach direction (opposite to runway bearing).
     
     Args:
-        threshold_xy: Threshold coordinates [2] (x, y)
+        threshold_xyz: Threshold coordinates [3] (x, y, altitude)
         bearing: Runway bearing [*, 2] (sin, cos)
         distance: Distance to extend backward from threshold (in NM) [float]
         
     Returns:
         Point on extended centerline [*, 2] (x, y)
     """
+    threshold_xy = threshold_xy[:2]
     distance_m = distance_nm * 1852
     delta = -distance_m * bearing
     return threshold_xy + delta

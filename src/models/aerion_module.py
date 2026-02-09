@@ -64,7 +64,6 @@ class AerionModule(BaseModule):
         dec_in_traj = batch["dec_in_traj"]
         target_pad_mask = batch["mask_traj"]
         runway = batch["runway"]
-        runway_bearing = batch["runway"]["bearing"]
         contexts = self._extract_contexts(batch)
 
         if self.scheduled_sampling_enabled:
@@ -76,7 +75,7 @@ class AerionModule(BaseModule):
         
         input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
         
-        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway_bearing)
+        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
         
         self.train_metrics.update(pred_abs, target_abs, target_pad_mask)
@@ -93,13 +92,12 @@ class AerionModule(BaseModule):
         dec_in_traj = batch["dec_in_traj"]
         target_pad_mask = batch["mask_traj"]
         runway = batch["runway"]
-        runway_bearing = batch["runway"]["bearing"]
         contexts = self._extract_contexts(batch)
         
         pred_traj, _, _ = self._predict_autoregressively(input_traj, dec_in_traj, runway, contexts)
         input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
 
-        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway_bearing)
+        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
 
         self.val_metrics.update(pred_abs, target_abs, target_pad_mask)
@@ -197,7 +195,7 @@ class AerionModule(BaseModule):
         Args:
             input_traj: Normalized input trajectory [B, T_in, input_features]
             dec_in_traj: Normalized decoder input [B, H, dec_in_features] - used for initial token or as prefix
-            runway: Runway dictionary containing "xy" coordinates and "centerline_points_xy"
+            runway: Runway dictionary containing "xyz" coordinates and "centerline_points_xy"
             contexts: Dictionary of context tensors
             num_steps: Number of steps to predict (default: horizon_seq_len)
             memory: Pre-computed encoder memory (optional, will encode if None)
@@ -208,7 +206,7 @@ class AerionModule(BaseModule):
             Tuple of (predictions [B, num_steps, 3], memory, flightinfo_emb, final_position [B, 3])
         """
         num_steps = num_steps or self.horizon_seq_len
-        threshold_xy = runway["xy"]
+        threshold_xyz = runway["xyz"]
         centerline_points_xy = runway["centerline_points_xy"]
         
         # Encode if memory not provided
@@ -260,18 +258,19 @@ class AerionModule(BaseModule):
             next_step_pred = output[:, -1:, :]  # [B, 1, 3]
             all_predictions.append(next_step_pred)
             
-            next_dec_in, current_position = self._build_next_decoder_input(next_step_pred, current_position, threshold_xy, centerline_points_xy)
+            next_dec_in, current_position = self._build_next_decoder_input(next_step_pred, current_position, threshold_xyz, centerline_points_xy)
             current_dec_in = torch.cat([current_dec_in, next_dec_in], dim=1)
 
         pred_traj = torch.cat(all_predictions, dim=1)  # [B, num_steps, 3]
         return pred_traj, memory, flightinfo_emb
 
-    def _build_next_decoder_input(self, next_step_pred: torch.Tensor, current_position: torch.Tensor, threshold_xy: torch.Tensor, centerline_points_xy: torch.Tensor) -> torch.Tensor:
+    def _build_next_decoder_input(self, next_step_pred: torch.Tensor, current_position: torch.Tensor, threshold_xyz: torch.Tensor, centerline_points_xy: torch.Tensor) -> torch.Tensor:
         # Update current position with denormalized predicted delta
         pred_delta_denorm = self.denormalize_target_deltas(next_step_pred)  # [B, 1, 3]
         current_position = current_position + pred_delta_denorm[:, 0, :]  # [B, 3]
         
         # Compute distances to threshold and centerline points and normalize
+        threshold_xy = threshold_xyz[:, :2]  # [B, 2]
         dist_threshold = get_distances_to_centerline(current_position[:, :2], [threshold_xy])
         distances = get_distances_to_centerline(current_position[:, :2], centerline_points_xy)
         distances = torch.cat([dist_threshold, distances], dim=-1)
@@ -340,7 +339,7 @@ class AerionModule(BaseModule):
         # Build AR prefix: ground truth dec_in for TF steps + model's last prediction (full features)
         last_tf_dec_in, position_after_last_tf = self._build_next_decoder_input(
             tf_pred[:, -1:, :], position_before_last_tf,
-            runway["xy"], runway["centerline_points_xy"]
+            runway["xyz"], runway["centerline_points_xy"]
         )
         ar_start_dec_in = torch.cat([dec_in_traj[:, :tf_steps, :], last_tf_dec_in], dim=1)
         

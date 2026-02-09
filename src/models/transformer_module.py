@@ -28,7 +28,7 @@ class TransformerModule(BaseModule):
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
         target_pad_mask = batch["mask_traj"]
-        runway_bearing = batch["runway"]["bearing"]
+        runway = batch["runway"]
 
         if self.scheduled_sampling_enabled:
             pred_traj = self._predict_scheduled_sampling(input_traj, dec_in_traj, target_traj, target_pad_mask, batch_idx)
@@ -36,7 +36,7 @@ class TransformerModule(BaseModule):
             pred_traj, _ = self._predict_teacher_forcing(input_traj, dec_in_traj, target_pad_mask)
         input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
 
-        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway_bearing)
+        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
         
         self.train_metrics.update(pred_abs, target_abs, target_pad_mask)
@@ -52,12 +52,12 @@ class TransformerModule(BaseModule):
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
         target_pad_mask = batch["mask_traj"]
-        runway_bearing = batch["runway"]["bearing"]
+        runway = batch["runway"]
         
         pred_traj, _ = self._predict_autoregressively(input_traj, dec_in_traj)
         input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
 
-        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway_bearing)
+        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
 
         self.val_metrics.update(pred_abs, target_abs, target_pad_mask)
