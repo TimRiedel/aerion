@@ -12,14 +12,13 @@ class CompositeApproachLoss(nn.Module):
         weights: dict,
         use_3d: bool = True,
         epsilon: float = 1e-6,
-        alignment_num_waypoints: int = 4,
-        alignment_scale_factor: float = 5000.0,
+        alignment_num_waypoints: int = 7,
     ):
         """
         Initialize Composite Approach Loss.
         
         Combines ADE (Average Displacement Error), FDE (Final Displacement Error), and
-        optionally Runway Alignment losses with configurable weights.
+        optionally ILS Alignment losses with configurable weights.
         
         - ADE defines how to get there (overall trajectory accuracy)
         - FDE serves as a fixed target (get to the runway threshold)
@@ -31,8 +30,6 @@ class CompositeApproachLoss(nn.Module):
             epsilon: Small value added to distance calculation for numerical stability.
             alignment_num_waypoints: Number of final waypoints for alignment loss (default: 4).
                                      With 30s spacing, 4 waypoints = last 90 seconds.
-            alignment_scale_factor: Scale factor for alignment loss to match ADE/FDE magnitude.
-                                    Default 5000.0 balances with typical ADE/FDE values (4000-60000m).
         """
         super().__init__()
         if 'ade' not in weights or 'fde' not in weights:
@@ -48,7 +45,6 @@ class CompositeApproachLoss(nn.Module):
         self.fde = FDELoss(use_3d=use_3d, epsilon=epsilon)
         self.alignment_loss = ILSAlignmentLoss(
             num_final_waypoints=alignment_num_waypoints,
-            scale_factor=alignment_scale_factor,
             epsilon=epsilon,
         )
 
@@ -56,6 +52,8 @@ class CompositeApproachLoss(nn.Module):
         self,
         pred_abs: torch.Tensor,
         target_abs: torch.Tensor,
+        pred_norm: torch.Tensor,
+        target_norm: torch.Tensor,
         target_pad_mask: torch.Tensor,
         runway: dict,
     ):
@@ -65,6 +63,8 @@ class CompositeApproachLoss(nn.Module):
         Args:
             pred_abs: Predicted absolute positions [B, H, 3] (in meters)
             target_abs: Target absolute positions [B, H, 3] (in meters)
+            pred_norm: Predicted normalized positions [B, H, 3]
+            target_norm: Target normalized positions [B, H, 3]
             target_pad_mask: Padding mask [B, H] (True for padded positions)
             runway: Dictionary containing "xyz" coordinates and "bearing" in sin, cos format.
             
@@ -74,15 +74,15 @@ class CompositeApproachLoss(nn.Module):
         loss = 0
         if self.weight_mse > 0:
             active_mask = ~target_pad_mask
-            loss_mse = self.mse(pred_abs[active_mask], target_abs[active_mask])
+            loss_mse = self.mse(pred_norm[active_mask], target_norm[active_mask])
             loss += self.weight_mse * loss_mse
 
         if self.weight_ade > 0:
-            loss_ade = self.ade(pred_abs, target_abs, target_pad_mask)
+            loss_ade = self.ade(pred_norm, target_norm, target_pad_mask)
             loss += self.weight_ade * loss_ade
 
         if self.weight_fde > 0:
-            loss_fde = self.fde(pred_abs, target_abs, target_pad_mask)
+            loss_fde = self.fde(pred_norm, target_norm, target_pad_mask)
             loss += self.weight_fde * loss_fde
 
         if self.weight_alignment > 0:

@@ -15,16 +15,16 @@ class FDELoss(nn.Module):
         self.use_3d = use_3d
         self.epsilon = epsilon
 
-    def forward(self, pred_abs, target_abs, target_pad_mask):
+    def forward(self, pred_norm, target_norm, target_pad_mask):
         """
-        Final Displacement Error (FDE) loss in 2D or 3D space (in meters).
+        Final Displacement Error (FDE) loss in 2D or 3D normalized space.
         
         Computes the masked FDE loss by calculating Euclidean distance between
-        the last valid (non-padded) predicted and target absolute positions.
+        the last valid (non-padded) predicted and target normalized positions.
         
         Args:
-            pred_abs: Predicted absolute positions [batch_size, horizon_seq_len, 3] (in meters)
-            target_abs: Target absolute positions [batch_size, horizon_seq_len, 3] (in meters)
+            pred_norm: Predicted normalized positions [batch_size, horizon_seq_len, 3]
+            target_norm: Target normalized positions [batch_size, horizon_seq_len, 3]
             target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
             
         Returns:
@@ -36,15 +36,15 @@ class FDELoss(nn.Module):
         lengths = lengths.clamp(min=0)
 
         # 2. Extract the last valid predicted and target positions for each trajectory
-        batch_indices = torch.arange(pred_abs.size(0), device=pred_abs.device)
-        last_pred = pred_abs[batch_indices, lengths]        # [batch_size, 3]
-        last_target = target_abs[batch_indices, lengths]    # [batch_size, 3]
+        batch_indices = torch.arange(pred_norm.size(0), device=pred_norm.device)
+        last_pred = pred_norm[batch_indices, lengths]        # [batch_size, 3]
+        last_target = target_norm[batch_indices, lengths]    # [batch_size, 3]
 
         # 3. Calculate Euclidean distance for each trajectory
-        diff = last_pred - last_target  # [batch_size, 3]
+        diff_norm = last_pred - last_target  # [batch_size, 3]
         if self.use_3d:
-            dist = torch.norm(diff, dim=-1) + self.epsilon          # [batch_size]
+            dist_norm = torch.norm(diff_norm, dim=-1) + self.epsilon          # [batch_size]
         else:
-            dist = torch.norm(diff[:, :2], dim=-1) + self.epsilon   # [batch_size]
+            dist_norm = torch.norm(diff_norm[:, :2], dim=-1) + self.epsilon   # [batch_size]
 
-        return dist.mean()
+        return dist_norm.mean()

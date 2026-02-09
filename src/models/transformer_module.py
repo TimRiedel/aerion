@@ -1,9 +1,9 @@
-from data.transforms.normalize import Denormalizer
 import torch
 from typing import Any, Dict, Optional
-
-from models.base_module import BaseModule
 from torch.utils import checkpoint
+
+from data.transforms.normalize import Denormalizer, Normalizer
+from models.base_module import BaseModule
 
 
 class TransformerModule(BaseModule):
@@ -16,12 +16,15 @@ class TransformerModule(BaseModule):
         
         self.denormalize_inputs = Denormalizer(input_mean, input_std)
         self.denormalize_target_deltas = Denormalizer(dm.delta_mean, dm.delta_std)
+        self.normalize_positions = Normalizer(dm.pos_mean, dm.pos_std)
 
         # Register as submodules so they're moved to the correct device automatically
         self.add_module("denormalize_inputs", self.denormalize_inputs)
         self.add_module("denormalize_target_deltas", self.denormalize_target_deltas)
+        self.add_module("normalize_positions", self.normalize_positions)
         self.denormalize_inputs.to(self.device)
         self.denormalize_target_deltas.to(self.device)
+        self.normalize_positions.to(self.device)
 
     def training_step(self, batch, batch_idx):
         input_traj = batch["input_traj"]
@@ -31,17 +34,20 @@ class TransformerModule(BaseModule):
         runway = batch["runway"]
 
         if self.scheduled_sampling_enabled:
-            pred_traj = self._predict_scheduled_sampling(input_traj, dec_in_traj, target_traj, target_pad_mask, batch_idx)
+            pred_deltas_norm = self._predict_scheduled_sampling(input_traj, dec_in_traj, target_traj, target_pad_mask, batch_idx)
         else:
-            pred_traj, _ = self._predict_teacher_forcing(input_traj, dec_in_traj, target_pad_mask)
-        input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
+            pred_deltas_norm, _ = self._predict_teacher_forcing(input_traj, dec_in_traj, target_pad_mask)
+        
+        input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
+        pred_pos_norm = self.normalize_positions(pred_pos_abs)
+        target_pos_norm = self.normalize_positions(target_pos_abs)
 
-        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway)
+        loss = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, runway)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
         
-        self.train_metrics.update(pred_abs, target_abs, target_pad_mask)
+        self.train_metrics.update(pred_pos_abs, target_pos_abs, target_pad_mask)
         self._visualize_prediction_vs_targets(
-            input_abs, target_abs, pred_abs, target_pad_mask, batch_idx,
+            input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx,
             prefix="train", num_trajectories=6
         )
         
@@ -54,14 +60,19 @@ class TransformerModule(BaseModule):
         target_pad_mask = batch["mask_traj"]
         runway = batch["runway"]
         
-        pred_traj, _ = self._predict_autoregressively(input_traj, dec_in_traj)
-        input_abs, target_abs, pred_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_traj, target_pad_mask)
+        pred_deltas_norm, _ = self._predict_autoregressively(input_traj, dec_in_traj)
+        input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
+        pred_pos_norm = self.normalize_positions(pred_pos_abs)
+        target_pos_norm = self.normalize_positions(target_pos_abs)
 
-        loss = self.loss(pred_abs, target_abs, target_pad_mask, runway)
+        loss = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, runway)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
 
-        self.val_metrics.update(pred_abs, target_abs, target_pad_mask)
-        self._visualize_prediction_vs_targets(input_abs, target_abs, pred_abs, target_pad_mask, batch_idx, num_trajectories=self.num_visualized_traj)
+        self.val_metrics.update(pred_pos_abs, target_pos_abs, target_pad_mask)
+        self._visualize_prediction_vs_targets(
+            input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx,
+            prefix="val", num_trajectories=self.num_visualized_traj
+        )
         return loss
     
 
@@ -214,7 +225,7 @@ class TransformerModule(BaseModule):
         ar_start_dec_in = torch.cat([dec_in_traj[:, :tf_steps, :], last_tf_pred], dim=1)
         
         # Autoregressive phase
-        ar_pred, _, _ = self._predict_autoregressively(
+        ar_pred, _ = self._predict_autoregressively(
             input_traj, ar_start_dec_in,
             num_steps=ar_steps,
             memory=memory,

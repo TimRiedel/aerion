@@ -24,11 +24,10 @@ optimizer:
 loss:
   weights:
     mse: 0.0
-    ade: 0.5
-    fde: 0.5
-    alignment: 0.5
+    ade: 1.0
+    fde: 1.0
+    alignment: 1.0
   alignment_num_waypoints: 7       # Number of final waypoints (default: 4 = 90s with 30s spacing)
-  alignment_scale_factor: 10000.0  # Scale to match ADE/FDE magnitude
 
 scheduler:
   warmup_epochs: 5

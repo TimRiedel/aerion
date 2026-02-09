@@ -48,6 +48,22 @@ class FeatureSliceNormalizer:
         return sample
 
 
+class Normalizer(nn.Module):
+    """
+    Same as FeatureSliceNormalizer, but as a nn.Module for usage in on-demand normalization in models.
+    User must ensure that x tensor has the same or a compatible shape as the mean and std tensors.
+    Does not modify the sample dictionary, but returns the normalized tensor.
+    """
+    def __init__(self, mean: torch.Tensor, std: torch.Tensor, eps: float = 1e-6):
+        super().__init__()
+        self.register_buffer("mean", mean)
+        self.register_buffer("std", std)
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return (x - self.mean) / (self.std + self.eps)
+
+
 class Denormalizer(nn.Module):
     def __init__(self, mean: torch.Tensor, std: torch.Tensor):
         super().__init__()

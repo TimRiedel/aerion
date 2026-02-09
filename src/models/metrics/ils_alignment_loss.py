@@ -20,7 +20,6 @@ class ILSAlignmentLoss(nn.Module):
     def __init__(
         self,
         num_final_waypoints: int = 4,
-        scale_factor: float = 1.0,
         epsilon: float = 1e-6,
         localizer_max_deviation_deg: float = 2.5,
         glideslope_standard_deg: float = 3.0,
@@ -33,7 +32,6 @@ class ILSAlignmentLoss(nn.Module):
         Args:
             num_final_waypoints: Number of final waypoints to consider for alignment (default: 4).
                                  Only the last N waypoints of each trajectory are evaluated.
-            scale_factor: Scaling factor applied to the final loss to balance with other losses (default: 1.0).
             epsilon: Small value for numerical stability (currently unused, kept for future use).
             localizer_max_deviation_deg: Maximum allowed horizontal deviation from centerline in degrees (default: 2.5°).
             glideslope_standard_deg: Standard glideslope angle in degrees (default: 3.0°).
@@ -41,7 +39,6 @@ class ILSAlignmentLoss(nn.Module):
         """
         super().__init__()
         self.num_final_waypoints = num_final_waypoints
-        self.scale_factor = scale_factor
         self.epsilon = epsilon
         self.localizer_max_deviation_rad = math.radians(localizer_max_deviation_deg)
         self.glideslope_standard_rad = math.radians(glideslope_standard_deg)
@@ -311,5 +308,5 @@ class ILSAlignmentLoss(nn.Module):
             combined_loss = localizer_penalties + glideslope_penalties  # [N]
             losses.append(combined_loss.mean())
         
-        total_loss = torch.stack(losses).mean() * self.scale_factor
+        total_loss = torch.stack(losses).mean()
         return total_loss
