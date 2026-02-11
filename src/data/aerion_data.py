@@ -25,8 +25,8 @@ class AerionData(ApproachData):
         pos_std: torch.Tensor = None,
         delta_mean: torch.Tensor = None,
         delta_std: torch.Tensor = None,
-        dist_mean: torch.Tensor = None,
-        dist_std: torch.Tensor = None,
+        rwy_pos_mean: torch.Tensor = None,
+        rwy_pos_std: torch.Tensor = None,
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
         contexts_cfg: DictConfig = None,
@@ -44,13 +44,13 @@ class AerionData(ApproachData):
             num_waypoints_to_predict=num_waypoints_to_predict,
         )
         self.contexts_cfg = contexts_cfg or {}
-        self.dist_mean = dist_mean
-        self.dist_std = dist_std
+        self.rwy_pos_mean = rwy_pos_mean
+        self.rwy_pos_std = rwy_pos_std
 
     @property
     def feature_groups(self):
         feature_groups = super().feature_groups
-        feature_groups['dist'] = lambda sample: [sample['input_traj'][:, 6:14], sample['dec_in_traj'][:, 3:11]]
+        feature_groups['rwy_pos'] = lambda sample: [sample['input_traj'][:, 6:8], sample['dec_in_traj'][:, 6:8]]
         return feature_groups
 
     def setup(self, stage: str):
@@ -75,8 +75,8 @@ class AerionData(ApproachData):
             self.train_ds, self.val_ds = train_ds, val_ds
             
         if stage == "test":
-            if any(s is None for s in [self.pos_mean, self.pos_std, self.delta_mean, self.delta_std, self.dist_mean, self.dist_std]):
-                raise ValueError("Normalization stats (pos_mean, pos_std, delta_mean, delta_std, dist_mean, dist_std) must be provided for test dataset.")
+            if any(s is None for s in [self.pos_mean, self.pos_std, self.delta_mean, self.delta_std, self.rwy_pos_mean, self.rwy_pos_std]):
+                raise ValueError("Normalization stats (pos_mean, pos_std, delta_mean, delta_std, rwy_pos_mean, rwy_pos_std) must be provided for test dataset.")
 
             self.test_ds = AerionDataset(
                 inputs_path=self.dataset_cfg.test_inputs_path,
@@ -93,7 +93,18 @@ class AerionData(ApproachData):
 
 
     def _get_transforms(self):
-        transforms = super()._get_transforms()
-        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(6, 14), mean=self.dist_mean, std=self.dist_std))
-        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(3, 11), mean=self.dist_mean, std=self.dist_std))
+        transforms = []
+        if self.data_processing_cfg.get("noise", None) is not None:
+            noise_std_x = self.data_processing_cfg.noise.std_x
+            noise_std_y = self.data_processing_cfg.noise.std_y
+            noise_std_alt = self.data_processing_cfg.noise.std_alt
+            transforms.append(DecoderInputNoise(noise_std=torch.tensor([noise_std_x, noise_std_y, noise_std_alt])))
+
+        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(0, 3), mean=self.pos_mean, std=self.pos_std))
+        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(3, 6), mean=self.delta_mean, std=self.delta_std))
+        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(6, 8), mean=self.rwy_pos_mean, std=self.rwy_pos_std))
+        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(0, 3), mean=self.pos_mean, std=self.pos_std))
+        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(3, 6), mean=self.delta_mean, std=self.delta_std))
+        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(6, 8), mean=self.rwy_pos_mean, std=self.rwy_pos_std))
+        transforms.append(FeatureSliceNormalizer(name="target_traj", indices=(0, 3), mean=self.delta_mean, std=self.delta_std))
         return transforms
