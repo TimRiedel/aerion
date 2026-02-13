@@ -94,3 +94,39 @@ def get_distances_to_centerline(traj_pos_xy: torch.Tensor, runway_points_xy: Lis
         distances.append(dist)
     return torch.cat(distances, dim=-1)
 
+def convert_pos_to_rwy_coordinates(traj_pos_xy: torch.Tensor, runway_xy: torch.Tensor, runway_bearing: torch.Tensor) -> torch.Tensor:
+    """
+    Transform airport-aligned coordinates (ENU) to runway-relative coordinates.
+    
+    The transformation consists of:
+    1. Translation: subtract runway position to move origin to runway
+    2. Rotation: rotate so that positive x-axis aligns with runway direction
+    
+    Args:
+        traj_pos_xy: Trajectory positions [H, 2] or [B, H, 2] (x, y)
+        runway_xy: Runway position [2] or [B, 2] (x, y)
+        runway_bearing: Runway bearing [2] or [B, 2] (sin(θ), cos(θ)) in radians
+        
+    Returns:
+        Transformed positions in runway-relative frame [H, 2] or [B, H, 2]
+    """
+    # Translation - move origin to runway position
+    translated = traj_pos_xy - runway_xy
+
+    # Add dimensions to match translated shape for broadcasting
+    # For [H, 2]: sin/cos are scalars, broadcasting works automatically
+    # For [B, H, 2]: need [B, 1] to broadcast with [B, H, 2]
+    sin_theta = runway_bearing[..., 0]  # [2] -> scalar, [B, 2] -> [B]
+    cos_theta = runway_bearing[..., 1]  # [2] -> scalar, [B, 2] -> [B]
+    while sin_theta.dim() < translated.dim() - 1:
+        sin_theta = sin_theta.unsqueeze(-1)
+        cos_theta = cos_theta.unsqueeze(-1)
+    
+    # Apply rotation matrix
+    # [sin(θ)   cos(θ) ]
+    # [-cos(θ)  sin(θ) ]
+    rotated_x = sin_theta * translated[..., 0] + cos_theta * translated[..., 1]
+    rotated_y = -cos_theta * translated[..., 0] + sin_theta * translated[..., 1]
+    
+    return torch.stack([rotated_x, rotated_y], dim=-1)
+

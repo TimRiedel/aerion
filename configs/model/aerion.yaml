@@ -7,8 +7,8 @@ params:
   batch_first: true
 
   encoder_input_dim: 14  # 3 absolute positions + 3 deltas + 8 centerline features
-  decoder_input_dim: 11  # 3 deltas + 8 threshold features
-  output_dim: 3          # predicted deltas only (dx, dy, dalt)
+  decoder_input_dim: 14  # 3 absolute positions + 3 deltas + 8 centerline features
+  output_dim: 3          # predicted deltas only in ENU coordinates (dx, dy, dalt)
   d_model: 128
   nhead: 8
   num_encoder_layers: 6
