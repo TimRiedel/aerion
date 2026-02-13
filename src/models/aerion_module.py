@@ -7,6 +7,7 @@ from omegaconf import DictConfig
 from models.base_module import BaseModule
 from data.transforms.normalize import Denormalizer, Normalizer
 from data.utils.runway import get_distances_to_centerline
+from data.utils.trajectory import compute_rtd
 
 
 class AerionModule(BaseModule):
@@ -68,6 +69,7 @@ class AerionModule(BaseModule):
         input_traj = batch["input_traj"]
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
+        target_rtd = batch["target_rtd"]
         target_pad_mask = batch["mask_traj"]
         runway = batch["runway"]
         contexts = self._extract_contexts(batch)
@@ -86,7 +88,14 @@ class AerionModule(BaseModule):
         loss = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, runway)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
         
-        self.train_metrics.update(pred_pos_abs, target_pos_abs, target_pad_mask)
+        pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
+        self.train_metrics.update(
+            pred_pos_abs=pred_pos_abs,
+            target_pos_abs=target_pos_abs,
+            target_pad_mask=target_pad_mask,
+            pred_rtd=pred_rtd,
+            target_rtd=target_rtd,
+        )
         self._visualize_prediction_vs_targets(
             input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx,
             prefix="train", num_trajectories=6
@@ -98,6 +107,7 @@ class AerionModule(BaseModule):
         input_traj = batch["input_traj"]
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
+        target_rtd = batch["target_rtd"]
         target_pad_mask = batch["mask_traj"]
         runway = batch["runway"]
         contexts = self._extract_contexts(batch)
@@ -110,7 +120,14 @@ class AerionModule(BaseModule):
         loss = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, runway)
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
 
-        self.val_metrics.update(pred_pos_abs, target_pos_abs, target_pad_mask)
+        pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
+        self.val_metrics.update(
+            pred_pos_abs=pred_pos_abs,
+            target_pos_abs=target_pos_abs,
+            target_pad_mask=target_pad_mask,
+            pred_rtd=pred_rtd,
+            target_rtd=target_rtd,
+        )
         self._visualize_prediction_vs_targets(
             input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, 
             prefix="val", num_trajectories=self.num_visualized_traj
@@ -121,7 +138,6 @@ class AerionModule(BaseModule):
 
     def test_step(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
         raise NotImplementedError("Test step not implemented")
-
 
     # --------------------------------------
     # Context-related helper functions

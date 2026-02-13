@@ -14,6 +14,8 @@ class AccumulatedTrajectoryMetrics:
     - ADE per horizon: ADE computed at each horizon step
     - MAE per horizon: MAE computed at each horizon step
     - RMSE per horizon: RMSE computed at each horizon step
+    - RTDE (Remaining Track Distance Error): Difference between predicted and actual RTD
+    - Relative RTDE: RTDE divided by actual RTD, expressed as percentage
     """
     
     def __init__(self, horizon_seq_len: int, device: torch.device):
@@ -38,6 +40,10 @@ class AccumulatedTrajectoryMetrics:
         self.sum_mde_2d = torch.tensor(0.0, device=self.device)
         self.sum_mde_3d = torch.tensor(0.0, device=self.device)
         
+        # RTDE accumulators (per-trajectory metrics)
+        self.sum_rtde = torch.tensor(0.0, device=self.device)  # Sum of RTDE across all trajectories
+        self.sum_relative_rtde = torch.tensor(0.0, device=self.device)  # Sum of relative RTDE (%)
+        
         # Count of valid waypoints and trajectories
         self.count_valid_waypoints = torch.zeros(H, device=self.device)  # Shape: [H]
         self.count_traj = torch.tensor(0.0, device=self.device)  # Shape: [1]
@@ -47,12 +53,20 @@ class AccumulatedTrajectoryMetrics:
         self.traj_ade_3d_list = []
         self.traj_fde_2d_list = []
         self.traj_fde_3d_list = []
+        
+        # Per-trajectory RTDE lists for histogram and scatter plots
+        self.traj_rtde_list = []  # RTDE per trajectory
+        self.traj_rtde_relative_list = []  # Relative RTDE per trajectory
+        self.traj_rtd_pred_list = []  # Predicted RTD per trajectory (for scatter plot)
+        self.traj_rtd_act_list = []  # Actual RTD per trajectory (for scatter plot)
     
     def update(
         self,
-        pred_abs: torch.Tensor,
-        target_abs: torch.Tensor,
+        pred_pos_abs: torch.Tensor,
+        target_pos_abs: torch.Tensor,
         target_pad_mask: torch.Tensor,
+        pred_rtd: torch.Tensor,
+        target_rtd: torch.Tensor,
     ):
         """
         Accumulate metrics for a batch of predictions.
@@ -61,15 +75,17 @@ class AccumulatedTrajectoryMetrics:
             pred_abs: Model predictions (absolute positions) [batch_size, horizon_seq_len, 3]
             target_abs: Target values (absolute positions) [batch_size, horizon_seq_len, 3]
             target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            pred_rtd: Predicted RTD for the full trajectory [batch_size]
+            target_rtd: Actual RTD for the full trajectory [batch_size]
         """
         valid_mask = ~target_pad_mask  # [B, H]
         has_traj_valid_points = valid_mask.any(dim=1)  # [B]
         valid_waypoints_per_traj = valid_mask.sum(dim=1).clamp(min=1)  # [B]
         last_valid_index = (valid_mask.sum(dim=1) - 1).clamp(min=0)  # [B]
-        batch_indices = torch.arange(pred_abs.size(0), device=pred_abs.device)  # [B]
+        batch_indices = torch.arange(pred_pos_abs.size(0), device=pred_pos_abs.device)  # [B]
         
         # 1. Feature-wise Errors on absolute positions [B, H, F]
-        diff = pred_abs - target_abs
+        diff = pred_pos_abs - target_pos_abs
         abs_err = diff.abs()
         sq_err = diff ** 2
         
@@ -115,6 +131,23 @@ class AccumulatedTrajectoryMetrics:
         self.sum_mde_2d += traj_mde_2d[has_traj_valid_points].sum()
         self.sum_mde_3d += traj_mde_3d[has_traj_valid_points].sum()
         
+        # 7. RTDE (Remaining Track Distance Error) calculation - per trajectory
+        # Positive: overestimate (predicted more distance remaining than actual)
+        # Negative: underestimate (predicted less distance remaining than actual)
+        traj_rtde = pred_rtd - target_rtd  # [B]
+        # Relative RTDE: RTDE / actual_rtd * 100 (percentage)
+        traj_rtde_relative = traj_rtde / target_rtd * 100.0
+        
+        # Accumulate RTDE metrics (only for trajectories with valid points)
+        self.sum_rtde += traj_rtde[has_traj_valid_points].sum()
+        self.sum_relative_rtde += traj_rtde_relative[has_traj_valid_points].sum()
+        
+        # Store per-trajectory RTDE values for histograms and scatter plots
+        self.traj_rtde_list.append(traj_rtde[has_traj_valid_points])
+        self.traj_rtde_relative_list.append(traj_rtde_relative[has_traj_valid_points])
+        self.traj_rtd_pred_list.append(pred_rtd[has_traj_valid_points])
+        self.traj_rtd_act_list.append(target_rtd[has_traj_valid_points])
+        
         self.count_valid_waypoints += valid_mask.sum(dim=0)
         self.count_traj += valid_mask.any(dim=1).sum()
     
@@ -146,6 +179,12 @@ class AccumulatedTrajectoryMetrics:
             - traj_ade_3d_values: List of per-trajectory ADE 3D values for histograms
             - traj_fde_2d_values: List of per-trajectory FDE 2D values for histograms
             - traj_fde_3d_values: List of per-trajectory FDE 3D values for histograms
+            - rtde_scalar: Scalar average RTDE (can be positive or negative)
+            - rtde_relative_scalar: Scalar average relative RTDE (positive or negative %)
+            - traj_rtde_values: Per-trajectory RTDE values for histograms
+            - traj_rtde_relative_values: Per-trajectory relative RTDE values (%)
+            - traj_rtd_pred_values: Per-trajectory predicted RTD values for scatter plots
+            - traj_rtd_act_values: Per-trajectory actual RTD values for scatter plots
         """
         # Reduce tensors for distributed training if needed
         tensors_to_reduce = [
@@ -187,12 +226,21 @@ class AccumulatedTrajectoryMetrics:
         valid_points_per_horizon_unsqueezed = valid_points_per_horizon.unsqueeze(1)  # Shape: [H, 1]
         mae_per_horizon = self.sum_abs_error / valid_points_per_horizon_unsqueezed  # Shape: [H, F]
         rmse_per_horizon = torch.sqrt(self.sum_sq_error / valid_points_per_horizon_unsqueezed)  # Shape: [H, F]
+
+        # 5. RTDE metrics (per-trajectory)
+        # Scalar RTDE metrics (average across all trajectories)
+        rtde_scalar = self.sum_rtde / total_trajectories
+        rtde_relative_scalar = self.sum_relative_rtde / total_trajectories
         
         # 5. Concatenate per-trajectory ADE/FDE values for histograms
         traj_ade_2d_values = torch.cat(self.traj_ade_2d_list)
         traj_ade_3d_values = torch.cat(self.traj_ade_3d_list)
         traj_fde_2d_values = torch.cat(self.traj_fde_2d_list)
         traj_fde_3d_values = torch.cat(self.traj_fde_3d_list)
+        traj_rtde_values = torch.cat(self.traj_rtde_list)
+        traj_rtde_relative_values = torch.cat(self.traj_rtde_relative_list)
+        traj_rtd_pred_values = torch.cat(self.traj_rtd_pred_list)
+        traj_rtd_act_values = torch.cat(self.traj_rtd_act_list)
         
         if strategy is not None and hasattr(strategy, "world_size") and strategy.world_size > 1:
             raise NotImplementedError("Gathering trajectory metrics across multiple GPUs is not implemented.")
@@ -204,6 +252,8 @@ class AccumulatedTrajectoryMetrics:
             "fde_3d_scalar": fde_3d_scalar,
             "mde_2d_scalar": mde_2d_scalar,
             "mde_3d_scalar": mde_3d_scalar,
+            "rtde_scalar": rtde_scalar,
+            "rtde_relative_scalar": rtde_relative_scalar,
             "ade_2d_per_horizon": ade_2d_per_horizon,
             "ade_3d_per_horizon": ade_3d_per_horizon,
             "mae_per_horizon": mae_per_horizon,
@@ -212,4 +262,8 @@ class AccumulatedTrajectoryMetrics:
             "traj_ade_3d_values": traj_ade_3d_values,
             "traj_fde_2d_values": traj_fde_2d_values,
             "traj_fde_3d_values": traj_fde_3d_values,
+            "traj_rtde_values": traj_rtde_values,
+            "traj_rtde_relative_values": traj_rtde_relative_values,
+            "traj_rtd_pred_values": traj_rtd_pred_values,
+            "traj_rtd_act_values": traj_rtd_act_values,
         }
