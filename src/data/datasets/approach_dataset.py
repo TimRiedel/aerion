@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional, Callable, List, Tuple
 from traffic.data import airports
 
 from data.utils import construct_runway_features
+from data.utils.trajectory import compute_rtd
 
 
 class ApproachDataset(Dataset):
@@ -89,10 +90,12 @@ class ApproachDataset(Dataset):
         input_traj = torch.cat([input_traj_pos, input_traj_deltas], dim=1)  # [T_in, 6]
 
         runway_data = self._get_runway_data(flight_id)
+        target_rtd = compute_rtd(target_traj_pos, mask_traj, runway_data["xyz"], runway_data["bearing"])
 
         sample = {
             "input_traj": input_traj,            # [T_in, 6] positions + deltas
             "target_traj": target_traj_deltas,   # [H, 3] target deltas
+            "target_rtd": target_rtd,            # scalar
             "dec_in_traj": dec_in_deltas,        # [H, 3] decoder input deltas
             "mask_traj": mask_traj,              # [H] mask for padded positions
             "runway": runway_data,               # Needed for alignment loss

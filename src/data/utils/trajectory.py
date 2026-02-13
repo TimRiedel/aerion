@@ -50,3 +50,68 @@ def reconstruct_absolute_from_deltas(
     target_abs = p0 + torch.cumsum(target_deltas_m, dim=1)
     
     return input_abs, target_abs, pred_abs
+
+def compute_rtd(
+    horizon_traj: torch.Tensor,
+    padding_mask: torch.Tensor,
+    runway_xyz: torch.Tensor,
+    runway_bearing: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Compute Remaining Track Distance (RTD) for batched or unbatched trajectories.
+    
+    RTD cumulatively adds up the 2D distance between consecutive valid waypoints,
+    then adjusts for the position of the last valid point relative to the runway threshold:
+    - If the last point is on the approach side (before the threshold), the along-track
+      distance to the threshold is added.
+    - If the last point has overshot the threshold (landing side), the along-track
+      distance past the threshold is subtracted.
+    
+    Args:
+        horizon_traj: Trajectory positions [H, 3] or [B, H, 3] (x, y, altitude) - absolute positions
+        padding_mask: Padding mask [H] or [B, H] (True for padded/invalid positions)
+        runway_xyz: Runway threshold position [3] or [B, 3] (x, y, altitude)
+        runway_bearing: Runway bearing [2] or [B, 2] (sin(θ), cos(θ))
+        
+    Returns:
+        RTD value as scalar (unbatched) or [B] (batched)
+    """
+    unbatched = horizon_traj.dim() == 2
+    if unbatched:
+        horizon_traj = horizon_traj.unsqueeze(0)
+        padding_mask = padding_mask.unsqueeze(0)
+        runway_xyz = runway_xyz.unsqueeze(0)
+        runway_bearing = runway_bearing.unsqueeze(0)
+
+    valid_mask = ~padding_mask  # [B, H]
+
+    # 1. Cumulative inter-waypoint 2D distances
+    deltas = horizon_traj[:, 1:, :2] - horizon_traj[:, :-1, :2]  # [B, H-1, 2]
+    segment_dists = torch.norm(deltas, dim=-1)  # [B, H-1]
+
+    # A segment is valid up to the last valid point (padding is always trailing)
+    segment_valid = valid_mask[:, 1:]  # [B, H-1]
+    cumulative_dist = (segment_dists * segment_valid).sum(dim=1)  # [B]
+
+    # 2. Find last valid point position
+    last_valid_idx = (valid_mask.sum(dim=1) - 1).clamp(min=0)  # [B]
+    batch_indices = torch.arange(horizon_traj.size(0), device=horizon_traj.device)
+    last_valid_pos_xy = horizon_traj[batch_indices, last_valid_idx, :2]  # [B, 2]
+
+    # 3. Compute along-track distance from threshold to last valid point
+    #    in runway-relative coordinates (positive = landing side, negative = approach side)
+    runway_xy = runway_xyz[:, :2]  # [B, 2]
+    translated = last_valid_pos_xy - runway_xy  # [B, 2]
+    sin_theta = runway_bearing[:, 0]  # [B]
+    cos_theta = runway_bearing[:, 1]  # [B]
+    # Approach side (along_track < 0): adds distance to threshold
+    # Landing side  (along_track > 0): subtracts overshoot past threshold
+    along_track = sin_theta * translated[:, 0] + cos_theta * translated[:, 1]  # [B]
+
+    # 4. RTD = cumulative path distance - along-track offset
+    rtd = cumulative_dist - along_track  # [B]
+
+    if unbatched:
+        rtd = rtd.squeeze(0)
+    return rtd
+
