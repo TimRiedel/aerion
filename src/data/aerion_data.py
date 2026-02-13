@@ -93,7 +93,17 @@ class AerionData(ApproachData):
 
 
     def _get_transforms(self):
-        transforms = super()._get_transforms()
+        transforms = []
+        if self.data_processing_cfg.get("noise", None) is not None:
+            noise_std_x = self.data_processing_cfg.noise.std_x
+            noise_std_y = self.data_processing_cfg.noise.std_y
+            noise_std_alt = self.data_processing_cfg.noise.std_alt
+            transforms.append(DecoderInputNoise(noise_std=torch.tensor([noise_std_x, noise_std_y, noise_std_alt])))
+
+        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(0, 3), mean=self.pos_mean, std=self.pos_std))
+        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(3, 6), mean=self.delta_mean, std=self.delta_std))
         transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(6, 14), mean=self.dist_mean, std=self.dist_std))
+        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(0, 3), mean=self.delta_mean, std=self.delta_std))
         transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(3, 11), mean=self.dist_mean, std=self.dist_std))
+        transforms.append(FeatureSliceNormalizer(name="target_traj", indices=(0, 3), mean=self.delta_mean, std=self.delta_std))
         return transforms

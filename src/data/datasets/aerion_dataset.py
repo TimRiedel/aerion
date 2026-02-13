@@ -57,16 +57,16 @@ class AerionDataset(ApproachDataset):
         input_dist_centerline = get_distances_to_centerline(input_traj_pos_xy, centerline_points_xy)
         input_traj = torch.cat([input_traj_pos, input_traj_deltas, input_dist_runway, input_dist_centerline], dim=1)
         
-        # Decoder input: shifted deltas (3) + distances to runway and centerline points
+        # Decoder input: shifted deltas (3) + centerline features (8)
         dec_in_pos_xy = dec_in_pos[:, :2]
         dec_in_dist_runway = get_distances_to_centerline(dec_in_pos_xy, [threshold_xy])
         dec_in_dist_centerline = get_distances_to_centerline(dec_in_pos_xy, centerline_points_xy)
         dec_in_traj = torch.cat([dec_in_deltas, dec_in_dist_runway, dec_in_dist_centerline], dim=1)
 
         sample = {
-            "input_traj": input_traj,            # [T_in, 6 + num_centerline_points * 2] positions + deltas + centerline distances
+            "input_traj": input_traj,            # [T_in, 3 + 3 + num_centerline_points * 2] positions + deltas + centerline features
             "target_traj": target_traj_deltas,   # [H, 3] target deltas
-            "dec_in_traj": dec_in_traj,          # [H, 3 + num_centerline_points * 2] decoder input deltas + centerline distances
+            "dec_in_traj": dec_in_traj,          # [H, 3 + num_centerline_points * 2] decoder input deltas + centerline features
             "mask_traj": mask_traj,              # [H] mask for padded positions
             "runway": runway_data,
             "flight_id": flight_id
