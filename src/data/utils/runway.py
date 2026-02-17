@@ -87,10 +87,20 @@ def compute_extended_centerline_point(
     delta = -distance_m * bearing
     return threshold_xy + delta
 
-def get_distances_to_centerline(traj_pos_xy: torch.Tensor, runway_points_xy: List[torch.Tensor]) -> torch.Tensor:
+def get_distances_to_centerline(
+    traj_pos_xy: torch.Tensor,
+    runway_points_xy: List[torch.Tensor],
+    clamp_m: float = 20_000.0,
+) -> torch.Tensor:
+    """
+    Compute (dx, dy) from trajectory positions to each runway centerline point.
+    Values are clamped to [-clamp_m, +clamp_m] meters so normalization
+    preserves resolution where the aircraft is close to the centerline.
+    """
     distances = []
     for runway_point_xy in runway_points_xy:
         dist = compute_dx_dy_bearing(traj_pos_xy, runway_point_xy)
+        dist = dist.clamp(min=-clamp_m, max=clamp_m)
         distances.append(dist)
     return torch.cat(distances, dim=-1)
 
