@@ -69,8 +69,9 @@ class AerionModule(BaseModule):
         input_traj = batch["input_traj"]
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
-        target_rtd = batch["target_rtd"]
         target_pad_mask = batch["mask_traj"]
+        target_rtd = batch["target_rtd"]
+        flight_id = batch["flight_id"]
         runway = batch["runway"]
         contexts = self._extract_contexts(batch)
 
@@ -99,7 +100,7 @@ class AerionModule(BaseModule):
             target_rtd=target_rtd,
         )
         self._visualize_prediction_vs_targets(
-            input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx,
+            input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
             prefix="train", num_trajectories=6
         )
         
@@ -109,8 +110,9 @@ class AerionModule(BaseModule):
         input_traj = batch["input_traj"]
         target_traj = batch["target_traj"]
         dec_in_traj = batch["dec_in_traj"]
-        target_rtd = batch["target_rtd"]
         target_pad_mask = batch["mask_traj"]
+        target_rtd = batch["target_rtd"]
+        flight_id = batch["flight_id"]
         runway = batch["runway"]
         contexts = self._extract_contexts(batch)
         
@@ -133,7 +135,7 @@ class AerionModule(BaseModule):
             target_rtd=target_rtd,
         )
         self._visualize_prediction_vs_targets(
-            input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, 
+            input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
             prefix="val", num_trajectories=self.num_visualized_traj
         )
 

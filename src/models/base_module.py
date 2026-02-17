@@ -265,6 +265,9 @@ class BaseModule(pl.LightningModule):
         pred_abs: torch.Tensor,
         target_pad_mask: torch.Tensor,
         batch_idx: int,
+        flight_id: str = None,
+        target_rtd: float = None,
+        pred_rtd: float = None,
         prefix: str = "val",
         num_trajectories: int = 6,
     ):
@@ -277,6 +280,9 @@ class BaseModule(pl.LightningModule):
             pred_abs: Predicted absolute positions [batch_size, horizon_seq_len, 3]
             target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
             batch_idx: Batch index
+            flight_id: Flight ID [batch_size]
+            target_rtd: Target RTD in meters [batch_size]
+            pred_rtd: Target RTD in meters [batch_size]
             prefix: Prefix for visualization names (e.g., "train", "val")
             num_trajectories: Number of trajectories to visualize (default: 6)
         """
@@ -288,8 +294,11 @@ class BaseModule(pl.LightningModule):
             target_abs_i = target_abs[i].detach().cpu().float().numpy()
             pred_abs_i = pred_abs[i].detach().cpu().float().numpy()
             target_pad_mask_i = target_pad_mask[i].detach().cpu().numpy()
+            target_rtd_i = target_rtd[i].detach().cpu().float().numpy()
+            pred_rtd_i = pred_rtd[i].detach().cpu().float().numpy()
+            flight_id_i = flight_id[i]
 
-            fig, ax = plot_predictions_targets(input_abs_i, target_abs_i, pred_abs_i, target_pad_mask_i, "EDDB") # TODO: add icao
+            fig, ax = plot_predictions_targets(input_abs_i, target_abs_i, pred_abs_i, target_pad_mask_i, "EDDB", flight_id_i, target_rtd_i, pred_rtd_i) # TODO: add icao
             self.logger.experiment.log({
                 f"{prefix}-predictions-targets/batch_{batch_idx}_traj_{i}": wandb.Image(fig)
             })
