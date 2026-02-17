@@ -40,9 +40,6 @@ scheduled_sampling:
 dataloader:
   batch_size: 3072
 
-data_processing:
-  feature_cols: ["x_coord", "y_coord", "altitude"]
-
 contexts:
   flightinfo:
     enabled: false
