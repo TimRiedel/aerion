@@ -43,11 +43,13 @@ class TransformerModule(BaseModule):
         input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
         pred_pos_norm = self.normalize_positions(pred_pos_abs)
         target_pos_norm = self.normalize_positions(target_pos_abs)
-
-        loss = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, runway)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
-        
         pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
+
+        loss, weighted_losses = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, pred_rtd, target_rtd, runway)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
+        # for loss_name, loss_value in weighted_losses.items():
+        #     self.log(f"train_{loss_name}_loss", loss_value, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
+        
         self.train_metrics.update(
             pred_pos_abs=pred_pos_abs,
             target_pos_abs=target_pos_abs,
@@ -74,11 +76,13 @@ class TransformerModule(BaseModule):
         input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
         pred_pos_norm = self.normalize_positions(pred_pos_abs)
         target_pos_norm = self.normalize_positions(target_pos_abs)
-
-        loss = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, runway)
-        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
-
         pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
+
+        loss, weighted_losses = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, pred_rtd, target_rtd, runway)
+        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
+        # for loss_name, loss_value in weighted_losses.items():
+        #     self.log(f"val_{loss_name}_loss", loss_value, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
+
         self.val_metrics.update(
             pred_pos_abs=pred_pos_abs,
             target_pos_abs=target_pos_abs,
