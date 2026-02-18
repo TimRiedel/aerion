@@ -8,7 +8,7 @@ params:
   output_dim: 3         # predicted deltas (dx, dy, dalt)
   d_model: 128
   nhead: 8
-  num_encoder_layers: 6
+  num_encoder_layers: 4
   num_decoder_layers: 6
   dim_feedforward: 512
   dropout: 0.1
