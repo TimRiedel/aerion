@@ -51,13 +51,13 @@ class AerionDataset(ApproachDataset):
         threshold_xy = runway_data["xyz"][:2]  # [2]
         centerline_points_xy = runway_data["centerline_points_xy"]
 
-        # Input: Append distances to runway and centerline points to input trajectory
+        # Input: Append distances to runway threshold and centerline points to input trajectory
         input_traj_pos_xy = input_traj_pos[:, :2]
         input_dist_runway = get_distances_to_centerline(input_traj_pos_xy, [threshold_xy])
         input_dist_centerline = get_distances_to_centerline(input_traj_pos_xy, centerline_points_xy)
         input_traj = torch.cat([input_traj_pos, input_traj_deltas, input_dist_runway, input_dist_centerline], dim=1)
         
-        # Decoder input: shifted deltas (3) + centerline features (8)
+        # Decoder input: shifted deltas (3) + distance features (2 * (1 + num_centerline_points))
         dec_in_pos_xy = dec_in_pos[:, :2]
         dec_in_dist_runway = get_distances_to_centerline(dec_in_pos_xy, [threshold_xy])
         dec_in_dist_centerline = get_distances_to_centerline(dec_in_pos_xy, centerline_points_xy)
@@ -67,10 +67,10 @@ class AerionDataset(ApproachDataset):
         target_rtd = compute_rtd(target_traj_pos, mask_traj, runway_data["xyz"], runway_data["bearing"])
 
         sample = {
-            "input_traj": input_traj,            # [T_in, 3 + 3 + num_centerline_points * 2] positions + deltas + centerline features
+            "input_traj": input_traj,            # [T_in, 3 + 3 + 2 * (1 + num_centerline_points)] positions + deltas + distance features
             "target_traj": target_traj_deltas,   # [H, 3] target deltas
             "target_rtd": target_rtd,            # scalar
-            "dec_in_traj": dec_in_traj,          # [H, 3 + num_centerline_points * 2] decoder input deltas + centerline features
+            "dec_in_traj": dec_in_traj,          # [H, 3 + 2 * (1 + num_centerline_points)] decoder input deltas + distance features
             "mask_traj": mask_traj,              # [H] mask for padded positions
             "runway": runway_data,
             "flight_id": flight_id

@@ -50,7 +50,7 @@ class AerionData(ApproachData):
     @property
     def feature_groups(self):
         feature_groups = super().feature_groups
-        feature_groups['dist'] = lambda sample: [sample['input_traj'][:, 6:14], sample['dec_in_traj'][:, 3:11]]
+        feature_groups['dist'] = lambda sample: [sample['input_traj'][:, 6:16], sample['dec_in_traj'][:, 3:13]]
         return feature_groups
 
     def setup(self, stage: str):
@@ -102,8 +102,8 @@ class AerionData(ApproachData):
 
         transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(0, 3), mean=self.pos_mean, std=self.pos_std))
         transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(3, 6), mean=self.delta_mean, std=self.delta_std))
-        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(6, 14), mean=self.dist_mean, std=self.dist_std))
+        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(6, 16), mean=self.dist_mean, std=self.dist_std))
         transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(0, 3), mean=self.delta_mean, std=self.delta_std))
-        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(3, 11), mean=self.dist_mean, std=self.dist_std))
+        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(3, 13), mean=self.dist_mean, std=self.dist_std))
         transforms.append(FeatureSliceNormalizer(name="target_traj", indices=(0, 3), mean=self.delta_mean, std=self.delta_std))
         return transforms
