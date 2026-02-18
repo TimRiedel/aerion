@@ -58,7 +58,7 @@ class TransformerModule(BaseModule):
             pred_rtd=pred_rtd,
             target_rtd=target_rtd,
         )
-        self._visualize_prediction_vs_targets(
+        self._plot_prediction_vs_target(
             input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
             prefix="train", num_trajectories=6
         )
@@ -92,7 +92,7 @@ class TransformerModule(BaseModule):
             pred_rtd=pred_rtd,
             target_rtd=target_rtd,
         )
-        self._visualize_prediction_vs_targets(
+        self._plot_prediction_vs_target(
             input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
             prefix="val", num_trajectories=self.num_visualized_traj
         )

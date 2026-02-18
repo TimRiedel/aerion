@@ -14,7 +14,7 @@ class AccumulatedTrajectoryMetrics:
     - ADE per horizon: ADE computed at each horizon step
     - MAE per horizon: MAE computed at each horizon step
     - RMSE per horizon: RMSE computed at each horizon step
-    - RTDE (Remaining Track Distance Error): Difference between predicted and actual RTD
+    - RTDE (Remaining Track Distance Error): Difference between predicted and target RTD
     - Relative RTDE: RTDE divided by actual RTD, expressed as percentage
     """
     
@@ -58,7 +58,7 @@ class AccumulatedTrajectoryMetrics:
         self.traj_rtde_list = []  # RTDE per trajectory
         self.traj_rtde_relative_list = []  # Relative RTDE per trajectory
         self.traj_rtd_pred_list = []  # Predicted RTD per trajectory (for scatter plot)
-        self.traj_rtd_act_list = []  # Actual RTD per trajectory (for scatter plot)
+        self.traj_rtd_target_list = []  # Target RTD per trajectory (for scatter plot)
     
     def update(
         self,
@@ -146,7 +146,7 @@ class AccumulatedTrajectoryMetrics:
         self.traj_rtde_list.append(traj_rtde[has_traj_valid_points])
         self.traj_rtde_relative_list.append(traj_rtde_relative[has_traj_valid_points])
         self.traj_rtd_pred_list.append(pred_rtd[has_traj_valid_points])
-        self.traj_rtd_act_list.append(target_rtd[has_traj_valid_points])
+        self.traj_rtd_target_list.append(target_rtd[has_traj_valid_points])
         
         self.count_valid_waypoints += valid_mask.sum(dim=0)
         self.count_traj += valid_mask.any(dim=1).sum()
@@ -184,7 +184,7 @@ class AccumulatedTrajectoryMetrics:
             - traj_rtde_values: Per-trajectory RTDE values for histograms
             - traj_rtde_relative_values: Per-trajectory relative RTDE values (%)
             - traj_rtd_pred_values: Per-trajectory predicted RTD values for scatter plots
-            - traj_rtd_act_values: Per-trajectory actual RTD values for scatter plots
+            - traj_rtd_target_values: Per-trajectory target RTD values for scatter plots
         """
         # Reduce tensors for distributed training if needed
         tensors_to_reduce = [
@@ -240,7 +240,7 @@ class AccumulatedTrajectoryMetrics:
         traj_rtde_values = torch.cat(self.traj_rtde_list)
         traj_rtde_relative_values = torch.cat(self.traj_rtde_relative_list)
         traj_rtd_pred_values = torch.cat(self.traj_rtd_pred_list)
-        traj_rtd_act_values = torch.cat(self.traj_rtd_act_list)
+        traj_rtd_target_values = torch.cat(self.traj_rtd_target_list)
         
         if strategy is not None and hasattr(strategy, "world_size") and strategy.world_size > 1:
             raise NotImplementedError("Gathering trajectory metrics across multiple GPUs is not implemented.")
@@ -265,5 +265,5 @@ class AccumulatedTrajectoryMetrics:
             "traj_rtde_values": traj_rtde_values,
             "traj_rtde_relative_values": traj_rtde_relative_values,
             "traj_rtd_pred_values": traj_rtd_pred_values,
-            "traj_rtd_act_values": traj_rtd_act_values,
+            "traj_rtd_target_values": traj_rtd_target_values,
         }

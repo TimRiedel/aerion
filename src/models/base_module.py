@@ -10,7 +10,7 @@ from torch import nn
 
 from models.metrics import ADELoss, AccumulatedTrajectoryMetrics
 from data.utils.trajectory import reconstruct_absolute_from_deltas
-from visualization.predictions_targets import plot_predictions_targets
+from visualization import *
 
 
 class BaseModule(pl.LightningModule):
@@ -201,6 +201,8 @@ class BaseModule(pl.LightningModule):
         self._log_histogram(metrics["traj_fde_2d_values"], "FDE2D", prefix)
         self._log_histogram(metrics["traj_fde_3d_values"], "FDE3D", prefix)
 
+        self._plot_rtde_violins(metrics["traj_rtd_target_values"], metrics["traj_rtd_pred_values"], prefix)
+
     def _horizon_line_plot(self, metric: torch.Tensor, metric_name: str, prefix: str, feature_name: str = None):
         if feature_name is not None:
             feat_idx = ["X", "Y", "Altitude"].index(feature_name)
@@ -258,7 +260,7 @@ class BaseModule(pl.LightningModule):
             f"{category}/hist-{metric_name}": histogram
         })
 
-    def _visualize_prediction_vs_targets(
+    def _plot_prediction_vs_target(
         self,
         input_abs: torch.Tensor,
         target_abs: torch.Tensor,
@@ -303,6 +305,16 @@ class BaseModule(pl.LightningModule):
                 f"{prefix}-predictions-targets/batch_{batch_idx}_traj_{i}": wandb.Image(fig)
             })
             plt.close(fig)
+
+    def _plot_rtde_violins(self, target_rtd: torch.Tensor, pred_rtde: torch.Tensor, prefix: str = "val"):
+        target_rtd_km, pred_rtde_km = target_rtd / 1000.0, pred_rtde / 1000.0
+        target_rtd_km = target_rtd_km.detach().cpu().float().numpy()
+        pred_rtde_km = pred_rtde_km.detach().cpu().float().numpy()
+        fig, _ = plot_rtde_violins(target_rtd_km, pred_rtde_km)
+        self.logger.experiment.log({
+            f"{prefix}/RTDE-Violins": wandb.Image(fig)
+        })
+        plt.close(fig)
 
     # --------------------------------------
     # Utility
