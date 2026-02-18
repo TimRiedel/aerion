@@ -21,7 +21,7 @@ def compute_dx_dy_bearing(
     """
     return reference_xy - positions_xy
 
-def construct_runway_features(unique_airport_runways: List[Tuple[str, str]], distance_nm: List[float] = [4, 8, 32]) -> torch.Tensor:
+def construct_runway_features(unique_airport_runways: List[Tuple[str, str]], distance_nm: List[float] = [8, 16, 24]) -> torch.Tensor:
     runway_features = {}
 
     for airport_runway in unique_airport_runways:
