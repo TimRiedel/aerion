@@ -75,13 +75,7 @@ class AerionModule(BaseModule):
         runway = batch["runway"]
         contexts = self._extract_contexts(batch)
 
-        if self.scheduled_sampling_enabled:
-            pred_deltas_norm = self._predict_scheduled_sampling(
-                input_traj, dec_in_traj, target_traj, runway, target_pad_mask, contexts, batch_idx
-            )
-        else:
-            pred_deltas_norm, _, _ = self._predict_teacher_forcing(input_traj, dec_in_traj, target_pad_mask, contexts)
-        
+        pred_deltas_norm, _, _ = self._predict_autoregressively(input_traj, dec_in_traj, runway, contexts)
         input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
         pred_pos_norm = self.normalize_abs_positions(pred_pos_abs)
         target_pos_norm = self.normalize_abs_positions(target_pos_abs)

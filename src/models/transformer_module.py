@@ -36,11 +36,7 @@ class TransformerModule(BaseModule):
         flight_id = batch["flight_id"]
         runway = batch["runway"]
 
-        if self.scheduled_sampling_enabled:
-            pred_deltas_norm = self._predict_scheduled_sampling(input_traj, dec_in_traj, target_traj, target_pad_mask, batch_idx)
-        else:
-            pred_deltas_norm, _ = self._predict_teacher_forcing(input_traj, dec_in_traj, target_pad_mask)
-        
+        pred_deltas_norm, _ = self._predict_autoregressively(input_traj, dec_in_traj)
         input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
         pred_pos_norm = self.normalize_positions(pred_pos_abs)
         target_pos_norm = self.normalize_positions(target_pos_abs)
