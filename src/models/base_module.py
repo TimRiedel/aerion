@@ -1,3 +1,5 @@
+import io
+from PIL import Image
 import wandb
 import torch
 import numpy as np
@@ -301,9 +303,9 @@ class BaseModule(pl.LightningModule):
             pred_rtd_i = pred_rtd[i].detach().cpu().float().numpy()
             flight_id_i = flight_id[i]
 
-            fig, ax = plot_predictions_targets(input_abs_i, target_abs_i, pred_abs_i, target_pad_mask_i, "EDDB", flight_id_i, target_rtd_i, pred_rtd_i) # TODO: add icao
+            fig, _ = plot_predictions_targets(input_abs_i, target_abs_i, pred_abs_i, target_pad_mask_i, "EDDB", flight_id_i, target_rtd_i, pred_rtd_i) # TODO: add icao
             self.logger.experiment.log({
-                f"{prefix}-predictions-targets/batch_{batch_idx}_traj_{i}": wandb.Image(fig)
+                f"{prefix}-predictions-targets/batch_{batch_idx}_traj_{i}": self.fig_to_wandb_image(fig)
             })
             plt.close(fig)
 
@@ -313,6 +315,7 @@ class BaseModule(pl.LightningModule):
         pred_rtde_km = pred_rtde_km.detach().cpu().float().numpy()
         fig, _ = plot_rtde_violins(target_rtd_km, pred_rtde_km)
         self.logger.experiment.log({
+            f"{prefix}-rtd/RTDE-Violins": self.fig_to_wandb_image(fig)
         })
         plt.close(fig)
 
@@ -324,7 +327,7 @@ class BaseModule(pl.LightningModule):
 
         fig, _ = plot_rtd_scatter(target_rtd_km, pred_rtde_km, rtde_relative)
         self.logger.experiment.log({
-            f"{prefix}-rtd/RTDE-Scatter": wandb.Image(fig)
+            f"{prefix}-rtd/RTDE-Scatter": self.fig_to_wandb_image(fig)
         })
         plt.close(fig)
 
@@ -334,6 +337,12 @@ class BaseModule(pl.LightningModule):
 
     def _generate_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
         return nn.Transformer.generate_square_subsequent_mask(seq_len, dtype=torch.bool, device=device)
+
+    def fig_to_wandb_image(self, fig: plt.Figure) -> wandb.Image:
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.1)
+        buf.seek(0)
+        return wandb.Image(Image.open(buf))
 
 
 
