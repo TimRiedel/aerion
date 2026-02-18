@@ -1,3 +1,4 @@
+import matplotlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -15,6 +16,7 @@ def plot_predictions_targets(
     flight_id: str = None,
     target_rtd: float = None,
     pred_rtd: float = None,
+    cmap: str = "viridis",
 ):
     """
     Plot prediction vs groundtruth in X/Y space (km) with altitude profile below.
@@ -37,6 +39,8 @@ def plot_predictions_targets(
         Target RTD in meters
     pred_rtd : float
         Predicted RTD in meters
+    cmap : str
+        Colormap to use for the colors
     
     Returns:
     --------
@@ -75,9 +79,16 @@ def plot_predictions_targets(
     pred_x_connected = np.concatenate([[input_x_km[-1]], pred_x_km])
     pred_y_connected = np.concatenate([[input_y_km[-1]], pred_y_km])
 
-    ax_xy.plot(input_x_km, input_y_km, color='blue', linewidth=linewidth, label='Input', zorder=3)
-    ax_xy.plot(target_x_connected, target_y_connected, color='gold', linewidth=linewidth, label='Target', zorder=3)
-    ax_xy.plot(pred_x_connected, pred_y_connected, color='red', linewidth=linewidth, label='Prediction', zorder=3)
+    # Get colors from colormap
+    factors = [0.2, 0.55]
+    cmap = matplotlib.colormaps[cmap]
+    input_color = cmap(factors[0])
+    pred_color = cmap(factors[1])
+    target_color = "gold"
+
+    ax_xy.plot(input_x_km, input_y_km, color=input_color, linewidth=linewidth, label='Input', zorder=3)
+    ax_xy.plot(target_x_connected, target_y_connected, color=target_color, linewidth=linewidth, label='Target', zorder=3)
+    ax_xy.plot(pred_x_connected, pred_y_connected, color=pred_color, linewidth=linewidth, label='Prediction', zorder=3)
     
     all_x_km = np.concatenate([input_x_km, target_x_km, pred_x_km])
     all_y_km = np.concatenate([input_y_km, target_y_km, pred_y_km])
@@ -89,9 +100,9 @@ def plot_predictions_targets(
     target_alt_connected = np.concatenate([[input_alt[-1]], target_alt])
     pred_alt_connected = np.concatenate([[input_alt[-1]], pred_alt])
     
-    ax_alt.plot(input_steps, input_alt, color='blue', linewidth=linewidth, label='Input')
-    ax_alt.plot(target_steps, target_alt_connected, color='gold', linewidth=linewidth, label='Target')
-    ax_alt.plot(target_steps, pred_alt_connected, color='red', linewidth=linewidth, label='Prediction')
+    ax_alt.plot(input_steps, input_alt, color=input_color, linewidth=linewidth, label='Input')
+    ax_alt.plot(target_steps, target_alt_connected, color=target_color, linewidth=linewidth, label='Target')
+    ax_alt.plot(target_steps, pred_alt_connected, color=pred_color, linewidth=linewidth, label='Prediction')
     
     ax_alt = set_altitude_axis_config(ax_alt, len(input_alt), horizon_len)
     

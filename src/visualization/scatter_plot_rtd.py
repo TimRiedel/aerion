@@ -12,7 +12,7 @@ def plot_rtd_scatter(
     relative_error_max: float = 50.0,
     dpi: int = 150,
     figsize: Tuple[float, float] = (8, 6),
-    point_size: float = 1.0,
+    point_size: float = 2.0,
     alpha: float = 1.0,
     cmap: str = "viridis",
 ) -> Tuple[plt.Figure, plt.Axes]:
