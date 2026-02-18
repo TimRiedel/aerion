@@ -202,6 +202,7 @@ class BaseModule(pl.LightningModule):
         self._log_histogram(metrics["traj_fde_3d_values"], "FDE3D", prefix)
 
         self._plot_rtde_violins(metrics["traj_rtd_target_values"], metrics["traj_rtd_pred_values"], prefix)
+        self._plot_rtd_scatter(metrics["traj_rtd_target_values"], metrics["traj_rtd_pred_values"], metrics["traj_rtde_relative_values"], prefix)
 
     def _horizon_line_plot(self, metric: torch.Tensor, metric_name: str, prefix: str, feature_name: str = None):
         if feature_name is not None:
@@ -312,7 +313,18 @@ class BaseModule(pl.LightningModule):
         pred_rtde_km = pred_rtde_km.detach().cpu().float().numpy()
         fig, _ = plot_rtde_violins(target_rtd_km, pred_rtde_km)
         self.logger.experiment.log({
-            f"{prefix}/RTDE-Violins": wandb.Image(fig)
+        })
+        plt.close(fig)
+
+    def _plot_rtd_scatter(self, target_rtd: torch.Tensor, pred_rtde: torch.Tensor, rtde_relative: torch.Tensor, prefix: str = "val"):
+        target_rtd_km, pred_rtde_km, rtde_relative = target_rtd / 1000.0, pred_rtde / 1000.0, rtde_relative
+        target_rtd_km = target_rtd_km.detach().cpu().float().numpy()
+        pred_rtde_km = pred_rtde_km.detach().cpu().float().numpy()
+        rtde_relative = rtde_relative.detach().cpu().float().numpy()
+
+        fig, _ = plot_rtd_scatter(target_rtd_km, pred_rtde_km, rtde_relative)
+        self.logger.experiment.log({
+            f"{prefix}-rtd/RTDE-Scatter": wandb.Image(fig)
         })
         plt.close(fig)
 
