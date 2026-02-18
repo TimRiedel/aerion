@@ -50,6 +50,7 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
             dim_feedforward=dim_feedforward,
             dropout=dropout,
             batch_first=batch_first,
+            activation='gelu',
         )
         
         self.output_projection = nn.Linear(d_model, output_dim)

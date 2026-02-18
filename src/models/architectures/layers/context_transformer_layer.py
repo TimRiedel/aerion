@@ -43,7 +43,7 @@ class ContextAwareTransformerEncoderLayer(nn.Module):
         # Feed-forward network
         self.feedforward = nn.Sequential(
             nn.Linear(d_model, dim_feedforward),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(dim_feedforward, d_model),
         )
@@ -136,7 +136,7 @@ class ContextAwareTransformerDecoderLayer(nn.Module):
         # Feed-forward network
         self.feedforward = nn.Sequential(
             nn.Linear(d_model, dim_feedforward),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(dim_feedforward, d_model),
         )
