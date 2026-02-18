@@ -202,6 +202,7 @@ class BaseModule(pl.LightningModule):
         self._log_histogram(metrics["traj_ade_3d_values"], "ADE3D", prefix)
         self._log_histogram(metrics["traj_fde_2d_values"], "FDE2D", prefix)
         self._log_histogram(metrics["traj_fde_3d_values"], "FDE3D", prefix)
+        self._log_histogram(metrics["traj_rtde_relative_values"], "Relative-RTDE", prefix, is_rtd=True)
         
         self._plot_rtde_violins(metrics["traj_rtd_target_values"], metrics["traj_rtde_values"], metrics["traj_rtde_relative_values"], prefix=prefix)
         self._plot_rtd_scatter(metrics["traj_rtd_target_values"], metrics["traj_rtd_pred_values"], metrics["traj_rtde_relative_values"], prefix=prefix)
@@ -233,7 +234,7 @@ class BaseModule(pl.LightningModule):
         plot = wandb.plot.line(table, x_column, y_column, title=f"{full_metric_name} vs Horizon")
         self.logger.experiment.log({f"{category}/{full_metric_name}": plot})
     
-    def _log_histogram(self, values: torch.Tensor, metric_name: str, prefix: str):
+    def _log_histogram(self, values: torch.Tensor, metric_name: str, prefix: str, is_rtd: bool = False):
         """
         Log histogram of per-trajectory metric values.
         
@@ -245,9 +246,14 @@ class BaseModule(pl.LightningModule):
         if values.numel() == 0:
             return
         
-        values_np = values.detach().cpu().numpy()
-        category = f"{prefix}-histograms"
+        if is_rtd:
+            category = f"{prefix}-rtd"
+            vega_spec_name = "timriedel/histogram-binned-percentages"
+        else:
+            category = f"{prefix}-histograms"
+            vega_spec_name = "timriedel/histogram-binned"
 
+        values_np = values.detach().cpu().numpy()
         data = [[i, float(value)] for i, value in enumerate(values_np)]
         table = wandb.Table(
             data=data,
@@ -255,7 +261,7 @@ class BaseModule(pl.LightningModule):
         )
         fields = {"value": metric_name, "title": f"Histogram of {metric_name}"}
         histogram = wandb.plot_table(
-            vega_spec_name="timriedel/histogram-binned",
+            vega_spec_name=vega_spec_name,
             data_table=table,
             fields=fields,
         )
