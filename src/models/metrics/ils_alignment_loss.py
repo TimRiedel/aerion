@@ -24,7 +24,8 @@ class ILSAlignmentLoss(nn.Module):
         localizer_max_deviation_deg: float = 2.5,
         glideslope_standard_deg: float = 3.0,
         glideslope_max_deviation_deg: float = 0.7,
-        heading_max_deviation_deg: float = 5.0,
+        heading_max_deviation_deg: float = 10.0,
+        loss_type: str = "quadratic",
     ):
         """
         Initialize ILS Alignment Loss.
@@ -36,6 +37,8 @@ class ILSAlignmentLoss(nn.Module):
             localizer_max_deviation_deg: Maximum allowed horizontal deviation from centerline in degrees (default: 2.5°).
             glideslope_standard_deg: Standard glideslope angle in degrees (default: 3.0°).
             glideslope_max_deviation_deg: Maximum allowed deviation from standard glideslope in degrees (default: 0.7°).
+            heading_max_deviation_deg: Maximum allowed deviation from runway bearing in degrees (default: 10.0°).
+            loss_type: Type of loss to use for angular deviations (default: "quadratic"). Can be "quadratic" or "huber".
         """
         super().__init__()
         self.num_final_waypoints = num_final_waypoints
@@ -44,6 +47,13 @@ class ILSAlignmentLoss(nn.Module):
         self.glideslope_standard_rad = math.radians(glideslope_standard_deg)
         self.glideslope_max_deviation_rad = math.radians(glideslope_max_deviation_deg)
         self.heading_max_deviation_rad = math.radians(heading_max_deviation_deg)
+
+        if loss_type == "quadratic":
+            self.loss_fn = self._compute_squared_deviation_loss
+        elif loss_type == "huber":
+            self.loss_fn = self._compute_huber_deviation_loss
+        else:
+            raise ValueError(f"Invalid loss type: {loss_type}")
 
     def _compute_localizer_deviation(
         self,
@@ -215,6 +225,24 @@ class ILSAlignmentLoss(nn.Module):
         
         # Huber formula: 0.5 * sq(quadratic) + delta * linear
         return 0.5 * quadratic**2 + delta * linear
+
+    def _compute_squared_deviation_loss(
+        self,
+        angular_deviation_rad: torch.Tensor, 
+        max_angle_rad: float,
+    ) -> torch.Tensor:
+        """
+        Compute squared deviation loss for angular deviations.
+        
+        Args:
+            angular_deviation_rad: Angular deviations in radians [N]
+            max_angle_rad: Maximum allowed deviation angle in radians (maintained for interface consistency)
+            
+        Returns:
+            Squared deviation loss values [N]
+        """
+        return angular_deviation_rad**2
+
     
 
     def forward(
@@ -284,28 +312,15 @@ class ILSAlignmentLoss(nn.Module):
                 rwy_bearing,
             )  # [N-1] - computed between consecutive positions
             
-            localizer_penalties = self._compute_huber_deviation_loss(
-                localizer_deviations,
-                self.localizer_max_deviation_rad,
-            )  # [N]
-            
-            glideslope_penalties = self._compute_huber_deviation_loss(
-                glideslope_deviations,
-                self.glideslope_max_deviation_rad,
-            )  # [N]
+            localizer_penalties = self.loss_fn(localizer_deviations, self.localizer_max_deviation_rad)  # [N]
+            glideslope_penalties = self.loss_fn(glideslope_deviations, self.glideslope_max_deviation_rad)  # [N]
+            track_penalties = self.loss_fn(track_deviations, self.heading_max_deviation_rad)  # [N-1]
 
-            track_penalties = self._compute_huber_deviation_loss(
-                track_deviations,
-                self.heading_max_deviation_rad,
-            )  # [N-1]
             # Pad track penalties at the beginning to match size [N-1] -> [N]
-            track_penalties_padded = torch.cat([
-                torch.zeros(1, device=track_penalties.device),
-                track_penalties
-            ])  # [N]
+            track_penalties_padded = torch.cat([track_penalties[:1], track_penalties])  # [N]
             
             # Combined loss: sum of localizer, glideslope, and track penalties
-            combined_loss = localizer_penalties + glideslope_penalties  # [N]
+            combined_loss = localizer_penalties + glideslope_penalties + track_penalties_padded  # [N]
             losses.append(combined_loss.mean())
         
         total_loss = torch.stack(losses).mean()
