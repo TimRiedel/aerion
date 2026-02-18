@@ -75,6 +75,7 @@ loss:
     ade: 1.0
     fde: 1.0
     alignment: 1.0
+    rtd: 0.0
   alignment_num_waypoints: 7
 
 # --------------------------------------
