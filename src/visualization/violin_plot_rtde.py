@@ -11,6 +11,7 @@ def plot_rtde_violins(
     violin_width: float = 0.7,
     dpi: int = 150,
     cmap: str = "viridis",
+    is_relative_rtde: bool = False,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Create violin plot of prediction error (pred_rtd - target_rtd) by target RTD bucket.
@@ -48,7 +49,7 @@ def plot_rtde_violins(
     fig, ax = plt.subplots(figsize=(12, 6), dpi=dpi)
 
     if not non_empty_violin_positions:
-        style_axes(ax, np.arange(1, n_bins + 1, dtype=float), bin_labels)
+        style_axes(ax, np.arange(1, n_bins + 1, dtype=float), bin_labels, is_relative_rtde)
         return fig, ax
 
     parts = ax.violinplot(
@@ -70,7 +71,7 @@ def plot_rtde_violins(
         pc.set_linewidth(1.2)
 
     add_box_plot(ax, non_empty_groups, non_empty_violin_positions, violin_width)
-    style_axes(ax, violin_positions, bin_labels)
+    style_axes(ax, violin_positions, bin_labels, is_relative_rtde)
 
     return fig, ax
 
@@ -170,10 +171,18 @@ def add_box_plot(
 
 
 
-def style_axes(ax: plt.Axes, positions: np.ndarray, bin_labels: List[str]) -> None:
+def style_axes(
+    ax: plt.Axes,
+    positions: np.ndarray,
+    bin_labels: List[str],
+    is_relative_rtde: bool,
+) -> None:
     """Set axis labels, ticks, grid and legend."""
     ax.set_xlabel("Target Distance (km)")
-    ax.set_ylabel(r"Prediction Error $\mathregular{RTD_{pred} - RTD_{target}}$ (km)")
+    if is_relative_rtde:
+        ax.set_ylabel("Relative RTD Prediction Error (%)")
+    else:
+        ax.set_ylabel("RTD Prediction Error (km)")
     ax.set_xticks(positions)
     ax.set_xticklabels(bin_labels)
 
