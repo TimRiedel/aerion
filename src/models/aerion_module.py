@@ -15,11 +15,11 @@ class AerionModule(BaseModule):
         self,
         model_cfg: DictConfig,
         optimizer_cfg: DictConfig,
+        loss_cfg: DictConfig,
         input_seq_len: int,
         horizon_seq_len: int,
         contexts_cfg: Optional[DictConfig] = None,
         scheduler_cfg: Optional[DictConfig] = None,
-        loss_cfg: Optional[DictConfig] = None,
         scheduled_sampling_cfg: Optional[DictConfig] = None,
         num_visualized_traj: int = 10,
     ):
@@ -31,10 +31,10 @@ class AerionModule(BaseModule):
         super().__init__(
             model_cfg=model_cfg,
             optimizer_cfg=optimizer_cfg,
+            loss_cfg=loss_cfg,
             input_seq_len=input_seq_len,
             horizon_seq_len=horizon_seq_len,
             scheduler_cfg=scheduler_cfg,
-            loss_cfg=loss_cfg,
             scheduled_sampling_cfg=scheduled_sampling_cfg,
             num_visualized_traj=num_visualized_traj,
         )
@@ -86,12 +86,18 @@ class AerionModule(BaseModule):
         pred_pos_norm = self.normalize_abs_positions(pred_pos_abs)
         target_pos_norm = self.normalize_abs_positions(target_pos_abs)
         pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
-        
-        loss, weighted_losses = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, pred_rtd, target_rtd, runway)
+
+        loss, weighted_losses = self._compute_loss_and_backward(
+            pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm,
+            target_pad_mask, pred_rtd, target_rtd, runway, training=True,
+            batch_size=len(input_traj),
+        )
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
-        # for loss_name, loss_value in weighted_losses.items():
-        #     self.log(f"train_{loss_name}_loss", loss_value, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
-        
+
+        pred_pos_abs = pred_pos_abs.detach()
+        target_pos_abs = target_pos_abs.detach()
+        pred_rtd = pred_rtd.detach()
+
         self.train_metrics.update(
             pred_pos_abs=pred_pos_abs,
             target_pos_abs=target_pos_abs,
@@ -103,8 +109,6 @@ class AerionModule(BaseModule):
             input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
             prefix="train", num_trajectories=6
         )
-        
-        return loss
     
     def validation_step(self, batch, batch_idx):
         input_traj = batch["input_traj"]
@@ -122,10 +126,14 @@ class AerionModule(BaseModule):
         target_pos_norm = self.normalize_abs_positions(target_pos_abs)
         pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
 
-        loss, weighted_losses = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, pred_rtd, target_rtd, runway)
+        loss, weighted_losses = self._compute_loss_and_backward(
+            pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm,
+            target_pad_mask, pred_rtd, target_rtd, runway, training=False, batch_size=len(input_traj))
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
-        # for loss_name, loss_value in weighted_losses.items():
-        #     self.log(f"val_{loss_name}_loss", loss_value, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(input_traj))
+
+        pred_pos_abs = pred_pos_abs.detach()
+        target_pos_abs = target_pos_abs.detach()
+        pred_rtd = pred_rtd.detach()
 
         self.val_metrics.update(
             pred_pos_abs=pred_pos_abs,
@@ -138,8 +146,6 @@ class AerionModule(BaseModule):
             input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
             prefix="val", num_trajectories=self.num_visualized_traj
         )
-
-        return loss
     
 
     def test_step(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:

@@ -8,4 +8,3 @@ default_root_dir: .outputs
 limit_train_batches: null
 limit_val_batches: null
 fast_dev_run: False
-gradient_clip_val: 0.5

@@ -10,7 +10,7 @@ from omegaconf import DictConfig
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch import nn
 
-from models.metrics import ADELoss, AccumulatedTrajectoryMetrics
+from models.metrics import AccumulatedTrajectoryMetrics, CompositeApproachLoss, GradNormBalancer
 from data.utils.trajectory import reconstruct_absolute_from_deltas
 from visualization import *
 
@@ -20,10 +20,10 @@ class BaseModule(pl.LightningModule):
         self,
         model_cfg: DictConfig,
         optimizer_cfg: DictConfig,
+        loss_cfg: DictConfig,
         input_seq_len: int,
         horizon_seq_len: int,
         scheduler_cfg: DictConfig = None,
-        loss_cfg: DictConfig = None,
         scheduled_sampling_cfg: DictConfig = None,
         num_visualized_traj: int = 10,
     ):
@@ -36,53 +36,109 @@ class BaseModule(pl.LightningModule):
         self.horizon_seq_len = horizon_seq_len
         self.num_visualized_traj = num_visualized_traj
 
-        if loss_cfg is not None:
-            self.loss = instantiate(loss_cfg)
-        else:
-            self.loss = ADELoss()
-        
+        self.loss = CompositeApproachLoss(
+            enabled=loss_cfg["enabled"],
+            use_3d=loss_cfg["use_3d"],
+            alignment_num_waypoints=loss_cfg["alignment_num_waypoints"]
+        )
+
+        gradnorm_cfg = loss_cfg["gradnorm"]
+        self.gradnorm = GradNormBalancer(
+            alpha=gradnorm_cfg["alpha"],
+            weight_lr=gradnorm_cfg["weight_lr"],
+            device=self.device,
+        )
+        self.automatic_optimization = False
+
         scheduled_sampling_cfg = scheduled_sampling_cfg or {}
         self.scheduled_sampling_enabled = scheduled_sampling_cfg.get("enabled", False)
-        self.teacher_forcing_epochs = scheduled_sampling_cfg.get("teacher_forcing_epochs", 10)
-        self.transition_epochs = scheduled_sampling_cfg.get("transition_epochs", 20)
+        self.teacher_forcing_epochs = scheduled_sampling_cfg.get("teacher_forcing_epochs", 1)
+        self.transition_epochs = scheduled_sampling_cfg.get("transition_epochs", 15)
 
         # Initialize metric accumulators (will be properly initialized in epoch start hooks)
         self.val_metrics = None
-        self.train_metrics = None 
-        
+        self.train_metrics = None
 
     # --------------------------------------
     # Optimizer and Scheduler
     # --------------------------------------
 
     def configure_optimizers(self):
-        optimizer = instantiate(self.optimizer_cfg, params=self.model.parameters())
-        
-        if self.scheduler_cfg is None:
-            return optimizer
-        else:
-            steps_per_epoch = len(self.trainer.datamodule.train_dataloader())
-            warmup_epochs = self.scheduler_cfg.get('warmup_epochs', 0)
-            
-            warmup_steps = steps_per_epoch * warmup_epochs
-            total_steps = steps_per_epoch * self.trainer.max_epochs
+        model_optimizer = instantiate(self.optimizer_cfg, params=self.model.parameters())
+        steps_per_epoch = len(self.trainer.datamodule.train_dataloader())
+        warmup_epochs = self.scheduler_cfg.get("warmup_epochs", 0) if self.scheduler_cfg else 0
+        warmup_steps = steps_per_epoch * warmup_epochs
+        total_steps = steps_per_epoch * self.trainer.max_epochs
+        scheduler = SequentialLR(
+            model_optimizer,
+            schedulers=[
+                LinearLR(model_optimizer, start_factor=1e-6, total_iters=warmup_steps),
+                CosineAnnealingLR(model_optimizer, T_max=total_steps - warmup_steps),
+            ],
+            milestones=[warmup_steps],
+        )
 
-            scheduler = SequentialLR(
-                optimizer,
-                schedulers=[
-                    LinearLR(optimizer, start_factor=1e-6, total_iters=warmup_steps),
-                    CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps),
-                ],
-                milestones=[warmup_steps],
-            )
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "interval": "step",
-                    "frequency": 1
-                }
-            }
+        return [model_optimizer], [scheduler]
+
+    # --------------------------------------
+    # GradNorm: compute loss and optional manual backward
+    # --------------------------------------
+
+    def _compute_loss_and_backward(
+        self,
+        pred_pos_abs: torch.Tensor,
+        target_abs: torch.Tensor,
+        pred_norm: torch.Tensor,
+        target_norm: torch.Tensor,
+        target_pad_mask: torch.Tensor,
+        pred_rtd: torch.Tensor,
+        target_rtd: torch.Tensor,
+        runway: dict,
+        training: bool,
+        batch_size: int
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """
+        Compute loss from composite approach loss (tensor of per-task losses).
+        If training, run GradNorm: weighted backward, gradnorm backward, step both optimizers, renormalize.
+        Returns (total_loss, loss_tensor for logging or None).
+        """
+
+        loss = self.loss(
+            pred_pos_abs, target_abs, pred_norm, target_norm,
+            target_pad_mask, pred_rtd, target_rtd, runway,
+        )
+
+        if not training:
+            return loss.sum().detach(), loss.detach()
+
+        model_optimizer = self.optimizers()
+        if not self.gradnorm.is_initialized():
+            self.gradnorm_optimizer = self.gradnorm.init_state_and_optimizer(loss)
+
+        weighted_loss = self.gradnorm.compute_weighted_loss(loss)
+        model_optimizer.zero_grad()
+        self.manual_backward(weighted_loss, retain_graph=True)
+
+        gradnorm_loss, updated_weights = self.gradnorm.compute_gradnorm_loss(
+            loss, self.model.output_projection
+        )
+        self.gradnorm_optimizer.zero_grad()
+        self.manual_backward(gradnorm_loss)
+        # self.clip_gradients(model_optimizer, gradient_clip_val=0.5, gradient_clip_algorithm="norm")
+
+        log_kw = dict(on_step=True, on_epoch=True, batch_size=batch_size)
+        self.log("gradnorm_loss", gradnorm_loss.detach(), **log_kw)
+        for i in range(updated_weights.shape[0]):
+            self.log(f"gradnorm_weight_{i}", updated_weights[i], **log_kw)
+
+        model_optimizer.step()
+        self.gradnorm_optimizer.step()
+
+        self.gradnorm_optimizer = self.gradnorm.renormalize_weights()
+        lr_scheduler = self.lr_schedulers()
+        lr_scheduler.step()
+
+        return weighted_loss.detach(), loss.detach()
 
 
     # --------------------------------------
