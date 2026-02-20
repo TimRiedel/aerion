@@ -289,6 +289,7 @@ class AerionModule(BaseModule):
         pred_delta_abs = self.denormalize_target_deltas(pred_deltas_norm)  # [B, 1, 3]
         current_position_abs = current_position_abs + pred_delta_abs[:, 0, :]  # [B, 3]
         current_position_norm = self.normalize_abs_positions(current_position_abs).unsqueeze(1) # [B, 1, 3]
+        alt_norm = current_position_norm[:, :, 2:3]  # [B, 1, 1]
         
         # Compute distances to threshold and centerline points and normalize
         threshold_xy = threshold_xyz[:, :2]  # [B, 2]
@@ -297,7 +298,7 @@ class AerionModule(BaseModule):
         dist_abs = torch.cat([dist_threshold_abs, dist_centerline_points_abs], dim=-1)
         dist_norm = self.normalize_distances(dist_abs).unsqueeze(1) # [B, 1, N]
 
-        next_dec_in = torch.cat([pred_deltas_norm, dist_norm], dim=-1)  # [B, 1, dec_in_features]
+        next_dec_in = torch.cat([alt_norm, pred_deltas_norm, dist_norm], dim=-1)  # [B, 1, dec_in_features]
         return next_dec_in, current_position_abs
 
 

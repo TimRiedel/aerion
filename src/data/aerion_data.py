@@ -50,7 +50,7 @@ class AerionData(ApproachData):
     @property
     def feature_groups(self):
         feature_groups = super().feature_groups
-        feature_groups['dist'] = lambda sample: [sample['input_traj'][:, 6:16], sample['dec_in_traj'][:, 3:13]]
+        feature_groups['dist'] = lambda sample: [sample['input_traj'][:, 6:16], sample['dec_in_traj'][:, 4:14]]
         return feature_groups
 
     def setup(self, stage: str):
@@ -100,10 +100,13 @@ class AerionData(ApproachData):
             noise_std_alt = self.data_processing_cfg.noise.std_alt
             transforms.append(DecoderInputNoise(noise_std=torch.tensor([noise_std_x, noise_std_y, noise_std_alt])))
 
-        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(0, 3), mean=self.pos_mean, std=self.pos_std))
-        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(3, 6), mean=self.delta_mean, std=self.delta_std))
-        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(6, 16), mean=self.dist_mean, std=self.dist_std))
-        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(0, 3), mean=self.delta_mean, std=self.delta_std))
-        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(3, 13), mean=self.dist_mean, std=self.dist_std))
-        transforms.append(FeatureSliceNormalizer(name="target_traj", indices=(0, 3), mean=self.delta_mean, std=self.delta_std))
+        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(0, 3), mean=self.pos_mean, std=self.pos_std)) # X, Y, Altitude
+        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(3, 6), mean=self.delta_mean, std=self.delta_std)) # Deltas
+        transforms.append(FeatureSliceNormalizer(name="input_traj", indices=(6, 16), mean=self.dist_mean, std=self.dist_std)) # Distances to runway threshold and centerline points
+
+        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(0, 1), mean=self.pos_mean[2:3], std=self.pos_std[2:3])) # Altitude
+        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(1, 4), mean=self.delta_mean, std=self.delta_std)) # Deltas
+        transforms.append(FeatureSliceNormalizer(name="dec_in_traj", indices=(4, 14), mean=self.dist_mean, std=self.dist_std)) # Distances to runway threshold and centerline points
+
+        transforms.append(FeatureSliceNormalizer(name="target_traj", indices=(0, 3), mean=self.delta_mean, std=self.delta_std)) # Deltas
         return transforms

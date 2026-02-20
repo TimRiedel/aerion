@@ -57,11 +57,12 @@ class AerionDataset(ApproachDataset):
         input_dist_centerline = get_distances_to_centerline(input_traj_pos_xy, centerline_points_xy)
         input_traj = torch.cat([input_traj_pos, input_traj_deltas, input_dist_runway, input_dist_centerline], dim=1)
         
-        # Decoder input: shifted deltas (3) + distance features (2 * (1 + num_centerline_points))
+        # Decoder input: altitude (1) + shifted deltas (3) + distance features (2 * (1 + num_centerline_points))
         dec_in_pos_xy = dec_in_pos[:, :2]
+        dec_in_alt = dec_in_pos[:, 2:3]  # [H, 1]
         dec_in_dist_runway = get_distances_to_centerline(dec_in_pos_xy, [threshold_xy])
         dec_in_dist_centerline = get_distances_to_centerline(dec_in_pos_xy, centerline_points_xy)
-        dec_in_traj = torch.cat([dec_in_deltas, dec_in_dist_runway, dec_in_dist_centerline], dim=1)
+        dec_in_traj = torch.cat([dec_in_alt, dec_in_deltas, dec_in_dist_runway, dec_in_dist_centerline], dim=1)
         
         # Compute remaining track distance
         target_rtd = compute_rtd(target_traj_pos, mask_traj, runway_data["xyz"], runway_data["bearing"])
@@ -70,7 +71,7 @@ class AerionDataset(ApproachDataset):
             "input_traj": input_traj,            # [T_in, 3 + 3 + 2 * (1 + num_centerline_points)] positions + deltas + distance features
             "target_traj": target_traj_deltas,   # [H, 3] target deltas
             "target_rtd": target_rtd,            # scalar
-            "dec_in_traj": dec_in_traj,          # [H, 3 + 2 * (1 + num_centerline_points)] decoder input deltas + distance features
+            "dec_in_traj": dec_in_traj,          # [H, 1 alt + 3 deltas + 2 * (1 + num_centerline_points)] decoder input
             "mask_traj": mask_traj,              # [H] mask for padded positions
             "runway": runway_data,
             "flight_id": flight_id
