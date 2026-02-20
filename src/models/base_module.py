@@ -201,6 +201,8 @@ class BaseModule(pl.LightningModule):
             f"{prefix}/MDE3D": metrics["mde_3d_scalar"],
             f"{prefix}/RTDE": metrics["rtde_scalar"],
             f"{prefix}/RelativeRTDE": metrics["rtde_relative_scalar"],
+            f"{prefix}/RelativeRTDE_StdDev": metrics["rtde_relative_std"],
+            f"{prefix}/Altitude_MSE": metrics["altitude_mse_scalar"],
         })
 
         self._horizon_line_plot(metrics["ade_2d_per_horizon"], "ADE2D", prefix)
