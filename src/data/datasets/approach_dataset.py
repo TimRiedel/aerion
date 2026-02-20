@@ -90,12 +90,13 @@ class ApproachDataset(Dataset):
         input_traj = torch.cat([input_traj_pos, input_traj_deltas], dim=1)  # [T_in, 6]
 
         runway_data = self._get_runway_data(flight_id)
-        target_rtd = compute_rtd(target_traj_pos, mask_traj, runway_data["xyz"], runway_data["bearing"])
+        # Because target trajectories end at the runway threshold, the RTD is the same as the trajectory distance.
+        traj_distance, _ = compute_rtd(target_traj_pos, mask_traj, runway_data["xyz"], runway_data["bearing"])
 
         sample = {
             "input_traj": input_traj,            # [T_in, 6] positions + deltas
             "target_traj": target_traj_deltas,   # [H, 3] target deltas
-            "target_rtd": target_rtd,            # scalar
+            "target_rtd": traj_distance,         # scalar
             "dec_in_traj": dec_in_deltas,        # [H, 3] decoder input deltas
             "mask_traj": mask_traj,              # [H] mask for padded positions
             "runway": runway_data,               # Needed for alignment loss

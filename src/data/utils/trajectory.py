@@ -60,8 +60,9 @@ def compute_rtd(
     """
     Compute Remaining Track Distance (RTD) for batched or unbatched trajectories.
     
-    RTD cumulatively adds up the 2D distance between consecutive valid waypoints,
-    then adjusts for the position of the last valid point relative to the runway threshold:
+    RTD is the cumulative 2D distance between consecutive valid waypoints. If
+    add_distance_to_threshold is True, the result is adjusted for the last valid point
+    relative to the runway threshold:
     - If the last point is on the approach side (before the threshold), the along-track
       distance to the threshold is added.
     - If the last point has overshot the threshold (landing side), the along-track
@@ -74,7 +75,8 @@ def compute_rtd(
         runway_bearing: Runway bearing [2] or [B, 2] (sin(θ), cos(θ))
         
     Returns:
-        RTD value as scalar (unbatched) or [B] (batched)
+        traj_distance: Cumulative trajectory distance [B]
+        rtd: Remaining track distance, including distance to threshold [B]
     """
     unbatched = horizon_traj.dim() == 2
     if unbatched:
@@ -108,10 +110,11 @@ def compute_rtd(
     # Landing side  (along_track > 0): subtracts overshoot past threshold
     along_track = sin_theta * translated[:, 0] + cos_theta * translated[:, 1]  # [B]
 
-    # 4. RTD = cumulative path distance - along-track offset
+    # 4. Compute RTD
     rtd = cumulative_dist - along_track  # [B]
 
     if unbatched:
+        cumulative_dist = cumulative_dist.squeeze(0)
         rtd = rtd.squeeze(0)
-    return rtd
+    return cumulative_dist, rtd
 

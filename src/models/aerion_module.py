@@ -79,9 +79,11 @@ class AerionModule(BaseModule):
         input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
         pred_pos_norm = self.normalize_abs_positions(pred_pos_abs)
         target_pos_norm = self.normalize_abs_positions(target_pos_abs)
-        pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
+
+        # We use the raw cumulative trajectory distance for the loss, but for the metrics we add the distance to the threshold to get the RTD.
+        pred_traj_distance, pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
         
-        loss, loss_info = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, pred_rtd, target_rtd, runway)
+        loss, loss_info = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, pred_traj_distance, target_rtd, runway)
         self._log_loss(loss, loss_info, prefix="train", batch_size=len(input_traj))
         
         self.train_metrics.update(
@@ -112,9 +114,11 @@ class AerionModule(BaseModule):
         input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
         pred_pos_norm = self.normalize_abs_positions(pred_pos_abs)
         target_pos_norm = self.normalize_abs_positions(target_pos_abs)
-        pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
 
-        loss, _ = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, pred_rtd, target_rtd, runway)
+        # We use the raw cumulative trajectory distance for the loss, but for the metrics we add the distance to the threshold to get the RTD.
+        pred_traj_distance, pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
+
+        loss, _ = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, target_pad_mask, pred_traj_distance, target_rtd, runway)
         self._log_loss(loss, prefix="val", batch_size=len(input_traj)) # do not log loss info for validation
 
         self.val_metrics.update(
