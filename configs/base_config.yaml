@@ -80,7 +80,10 @@ loss:
     enabled: true
   alignment:
     enabled: true
-    num_waypoints: 7
+    num_waypoints: 6
+  turn_rate:
+    enabled: true
+    dt_seconds: 30.0
 
 # --------------------------------------
 # Scheduled Sampling
