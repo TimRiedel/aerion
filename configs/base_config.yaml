@@ -70,17 +70,17 @@ optimizer:
 loss:
   ade:
     enabled: true
-    use_3d: true
+    use_3d: false
   fde:
     enabled: true
     use_3d: true
+  rtd:
+    enabled: true
+  altitude:
+    enabled: true
   alignment:
     enabled: true
     num_waypoints: 7
-  rtd:
-    enabled: true
-  mse:
-    enabled: false
 
 # --------------------------------------
 # Scheduled Sampling

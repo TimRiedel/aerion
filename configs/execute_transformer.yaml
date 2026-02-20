@@ -21,21 +21,6 @@ optimizer:
   lr: 1e-3
   weight_decay: 0.01
 
-loss:
-  ade:
-    enabled: true
-    use_3d: true
-  fde:
-    enabled: true
-    use_3d: true
-  alignment:
-    enabled: true
-    num_waypoints: 7
-  rtd:
-    enabled: true
-  mse:
-    enabled: false
-
 scheduler:
   warmup_epochs: 5
 
