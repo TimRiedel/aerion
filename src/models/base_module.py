@@ -10,7 +10,7 @@ from omegaconf import DictConfig
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch import nn
 
-from models.metrics import ADELoss, AccumulatedTrajectoryMetrics
+from models.metrics import AccumulatedTrajectoryMetrics, CompositeApproachLoss
 from data.utils.trajectory import reconstruct_absolute_from_deltas
 from visualization import *
 
@@ -20,10 +20,10 @@ class BaseModule(pl.LightningModule):
         self,
         model_cfg: DictConfig,
         optimizer_cfg: DictConfig,
+        loss_cfg: DictConfig,
         input_seq_len: int,
         horizon_seq_len: int,
         scheduler_cfg: DictConfig = None,
-        loss_cfg: DictConfig = None,
         scheduled_sampling_cfg: DictConfig = None,
         num_visualized_traj: int = 10,
     ):
@@ -36,27 +36,24 @@ class BaseModule(pl.LightningModule):
         self.horizon_seq_len = horizon_seq_len
         self.num_visualized_traj = num_visualized_traj
 
-        if loss_cfg is not None:
-            self.loss = instantiate(loss_cfg)
-        else:
-            self.loss = ADELoss()
-        
+        self.loss = CompositeApproachLoss(loss_configs=loss_cfg)
+
         scheduled_sampling_cfg = scheduled_sampling_cfg or {}
         self.scheduled_sampling_enabled = scheduled_sampling_cfg.get("enabled", False)
-        self.teacher_forcing_epochs = scheduled_sampling_cfg.get("teacher_forcing_epochs", 10)
-        self.transition_epochs = scheduled_sampling_cfg.get("transition_epochs", 20)
+        self.teacher_forcing_epochs = scheduled_sampling_cfg.get("teacher_forcing_epochs", 1)
+        self.transition_epochs = scheduled_sampling_cfg.get("transition_epochs", 15)
 
         # Initialize metric accumulators (will be properly initialized in epoch start hooks)
         self.val_metrics = None
-        self.train_metrics = None 
-        
+        self.train_metrics = None
 
     # --------------------------------------
     # Optimizer and Scheduler
     # --------------------------------------
 
     def configure_optimizers(self):
-        optimizer = instantiate(self.optimizer_cfg, params=self.model.parameters())
+        # Note: use self.parameters() instead of self.model.parameters() to include loss weight parameters
+        optimizer = instantiate(self.optimizer_cfg, params=self.parameters())
         
         if self.scheduler_cfg is None:
             return optimizer
@@ -179,6 +176,20 @@ class BaseModule(pl.LightningModule):
     # --------------------------------------
     # Logging and Visualization
     # --------------------------------------
+
+    def _log_loss(self, loss: torch.Tensor, loss_info: dict = None, prefix: str = "val", batch_size: int = None):
+        self.log(f"{prefix}_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch_size)
+
+        if loss_info is None:
+            return
+
+        loss_weights = loss_info.get("loss_weights", {})
+        for name, weight in loss_weights.items():
+            self.log(f"{prefix}_loss_weights/{name}", weight, on_step=False, on_epoch=True, batch_size=batch_size)
+
+        loss_sigmas = loss_info.get("loss_sigmas", {})
+        for name, sigma in loss_sigmas.items():
+            self.log(f"{prefix}_loss_sigmas/{name}", sigma, on_step=False, on_epoch=True, batch_size=batch_size)
 
     def _log_metrics(self, metrics: dict, prefix: str):
         self.log_dict({

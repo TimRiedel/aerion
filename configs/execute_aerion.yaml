@@ -22,13 +22,19 @@ optimizer:
   weight_decay: 0.01
 
 loss:
-  weights:
-    mse: 0.0
-    ade: 1.0
-    fde: 1.0
-    alignment: 1.0
-    rtd: 0.0
-  alignment_num_waypoints: 7       # Number of final waypoints (default: 4 = 90s with 30s spacing)
+  ade:
+    enabled: true
+    use_3d: true
+  fde:
+    enabled: true
+    use_3d: true
+  alignment:
+    enabled: true
+    num_waypoints: 7
+  rtd:
+    enabled: true
+  mse:
+    enabled: false
 
 scheduler:
   warmup_epochs: 5

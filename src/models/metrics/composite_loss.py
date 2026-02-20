@@ -6,51 +6,59 @@ from .fde_loss import FDELoss
 from .rtd_loss import RTDLoss
 from .ils_alignment_loss import ILSAlignmentLoss
 
+LOSS_ORDER = ["mse", "ade", "fde", "rtd", "alignment"]
+
 
 class CompositeApproachLoss(nn.Module):
-    def __init__(
-        self,
-        weights: dict,
-        use_3d: bool = True,
-        epsilon: float = 1e-6,
-        alignment_num_waypoints: int = 7,
-    ):
+    """
+    Computes individual trajectory losses with uncertainty weighting.
+    Combines ADE (Average Displacement Error), FDE (Final Displacement Error),
+    RTD (Remaining Track Distance) and ILS Alignment losses.
+
+    - FDE serves as a fixed target (get to the runway threshold)
+    - Alignment complements FDE and ensures the approach direction matches the runway heading
+    - ADE defines how to get to the target (overall trajectory accuracy)
+    - RTD complements ADE by making sure the flown track distance is correct
+
+    Losses are always in LOSS_ORDER. enabled_losses, stacked losses, and loss_dict
+    use the same index so they align with log_vars (weights) for logging.
+
+    The loss weights are computed using uncertainty weighting, as described in:
+    R. Cipolla, Y. Gal, and A. Kendall, "Multi-task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics,"
+    2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 7482–7491, Jun. 2018, doi: https://doi.org/10.1109/cvpr.2018.00781.
+    """
+
+    def __init__(self, loss_configs: dict):
         """
-        Initialize Composite Approach Loss.
-        
-        Combines ADE (Average Displacement Error), FDE (Final Displacement Error), 
-        RTD (Remaining Track Distance) and ILS Alignment losses with configurable weights.
-        
-        - FDE serves as a fixed target (get to the runway threshold)
-        - Alignment complements FDE and ensures the approach direction matches the runway heading
-        - ADE defines how to get to the target (overall trajectory accuracy)
-        - RTD complements ADE by making sure the flown track distance is correct
-        
         Args:
-            weights: Dictionary containing weights for each loss component.
-            use_3d: If True, compute 3D distance (x, y, altitude). If False, compute 2D distance (x, y only).
-            epsilon: Small value added to distance calculation for numerical stability.
-            alignment_num_waypoints: Number of final waypoints for alignment loss (default: 4).
-                                     With 30s spacing, 4 waypoints = last 90 seconds.
+            loss_configs: Dict of loss configs. Each key (e.g. "ade", "fde") must have an "enabled" boolean.
         """
         super().__init__()
-        if 'ade' not in weights or 'fde' not in weights:
-            raise ValueError("weights dictionary must contain 'ade' and 'fde' keys")
+        self.loss_configs = loss_configs
+        for name in self.loss_configs.keys():
+            if name not in LOSS_ORDER:
+                raise NotImplementedError(f"Loss '{name}' not implemented.")
 
-        self.weight_mse = weights.get('mse', 0)
-        self.weight_ade = weights.get('ade', 0)
-        self.weight_fde = weights.get('fde', 0)
-        self.weight_alignment = weights.get('alignment', 0)
-        self.weight_rtd = weights.get('rtd', 0)
+        # Fixed order: only enabled losses, in LOSS_ORDER (same index as log_vars and loss_dict)
+        self.enabled_losses = [name for name in LOSS_ORDER if (loss_configs.get(name) or {}).get("enabled", False)]
+        if not self.enabled_losses:
+            raise ValueError("At least one loss must be enabled.")
+        self.num_tasks = len(self.enabled_losses)
 
-        self.mse = MSELoss()
-        self.ade = ADELoss(use_3d=use_3d, epsilon=epsilon)
-        self.fde = FDELoss(use_3d=use_3d, epsilon=epsilon)
-        self.alignment_loss = ILSAlignmentLoss(
-            num_final_waypoints=alignment_num_waypoints,
-            epsilon=epsilon,
-        )
-        self.rtd_loss = RTDLoss()
+        if "mse" in self.enabled_losses:
+            self.mse_loss = MSELoss()
+        if "ade" in self.enabled_losses:
+            self.ade_loss = ADELoss(use_3d=loss_configs["ade"]["use_3d"])
+        if "fde" in self.enabled_losses:
+            self.fde_loss = FDELoss(use_3d=loss_configs["fde"]["use_3d"])
+        if "rtd" in self.enabled_losses:
+            self.rtd_loss = RTDLoss()
+        if "alignment" in self.enabled_losses:
+            self.alignment_loss = ILSAlignmentLoss(
+                num_final_waypoints=loss_configs["alignment"].get("num_waypoints", 7)
+            )
+
+        self.log_vars = nn.Parameter(torch.zeros(self.num_tasks))
 
     def forward(
         self,
@@ -62,7 +70,7 @@ class CompositeApproachLoss(nn.Module):
         pred_rtd: torch.Tensor,
         target_rtd: torch.Tensor,
         runway: dict,
-    ):
+    ) -> tuple[torch.Tensor, dict]:
         """
         Compute composite loss combining MSE, ADE, FDE, Alignment and RTD.
         
@@ -75,34 +83,40 @@ class CompositeApproachLoss(nn.Module):
             pred_rtd: Predicted remaining track distance [B]
             target_rtd: Target remaining track distance [B]
             runway: Dictionary containing "xyz" coordinates and "bearing" in sin, cos format.
-            
+        
         Returns:
-            Tuple containing:
-                - Scalar loss value (weighted sum of all enabled loss components)
-                - Dictionary containing weighted loss values for each enabled loss component
+            total: Scalar total loss
+            loss_info: Dictionary containing loss weights and sigmas
         """
-        loss = 0
-        weighted_losses = {}
-        if self.weight_mse > 0:
-            active_mask = ~target_pad_mask
-            loss_mse = self.mse(pred_norm[active_mask], target_norm[active_mask])
-            weighted_losses['mse'] = self.weight_mse * loss_mse
+        losses = []
+        for name in self.enabled_losses:
+            if name == "mse":
+                active = ~target_pad_mask
+                losses.append(self.mse_loss(pred_norm[active], target_norm[active]))
+            if name == "ade":
+                losses.append(self.ade_loss(pred_norm, target_norm, target_pad_mask))
+            if name == "fde":
+                losses.append(self.fde_loss(pred_norm, target_norm, target_pad_mask))
+            if name == "rtd":
+                losses.append(self.rtd_loss(pred_rtd, target_rtd))
+            if name == "alignment":
+                losses.append(self.alignment_loss(pred_abs, target_abs, target_pad_mask, runway))
 
-        if self.weight_ade > 0:
-            loss_ade = self.ade(pred_norm, target_norm, target_pad_mask)
-            weighted_losses['ade'] = self.weight_ade * loss_ade
+        task_losses = torch.stack(losses)
+        weights = torch.exp(-self.log_vars)
+        weighted = 0.5 * weights * task_losses
+        regularizer = 0.5 * self.log_vars
+        total = (weighted + regularizer).sum()
 
-        if self.weight_fde > 0:
-            loss_fde = self.fde(pred_norm, target_norm, target_pad_mask)
-            weighted_losses['fde'] = self.weight_fde * loss_fde
-
-        if self.weight_alignment > 0:
-            loss_alignment = self.alignment_loss(pred_abs, target_abs, target_pad_mask, runway)
-            weighted_losses['alignment'] = self.weight_alignment * loss_alignment
-
-        if self.weight_rtd > 0:
-            loss_rtd = self.rtd_loss(pred_rtd, target_rtd)
-            weighted_losses['rtd'] = self.weight_rtd * loss_rtd
-
-        loss = sum(weighted_losses.values())
-        return loss, weighted_losses
+        sigmas = torch.exp(0.5 * self.log_vars)
+        loss_info = {
+            "loss_weights": {
+                name: weights[i].item()
+                for i, name in enumerate(self.enabled_losses)
+            },
+            "loss_sigmas": {
+                name: sigmas[i].item()
+                for i, name in enumerate(self.enabled_losses)
+            },
+        }
+        return total, loss_info

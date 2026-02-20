@@ -26,6 +26,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     # Instantiate correct module based on model name
     model_cfg = OmegaConf.to_container(cfg["model"], resolve=True) # Convert to regular dict to allow modifications
     optimizer_cfg = OmegaConf.to_container(cfg["optimizer"], resolve=True)
+    loss_cfg = OmegaConf.to_container(cfg["loss"], resolve=True)
 
     if cfg["model"]["name"] == "aerion":
         data = AerionData(
@@ -40,11 +41,11 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
         model = AerionModule(
             model_cfg,
             optimizer_cfg,
+            loss_cfg,
             input_seq_len,
             horizon_seq_len,
             contexts_cfg=contexts_cfg,
             scheduler_cfg=cfg.get("scheduler", None),
-            loss_cfg=cfg.get("loss", None),
             scheduled_sampling_cfg=cfg.get("scheduled_sampling", None),
             num_visualized_traj=num_visualized_traj,
         )
@@ -60,10 +61,11 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
         model = TransformerModule(
             model_cfg,
             optimizer_cfg,
+            loss_cfg,
             input_seq_len,
             horizon_seq_len,
             scheduler_cfg=cfg.get("scheduler", None),
-            loss_cfg=cfg.get("loss", None),
+            scheduled_sampling_cfg=cfg.get("scheduled_sampling", None),
             num_visualized_traj=num_visualized_traj,
         )
     
