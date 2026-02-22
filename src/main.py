@@ -21,9 +21,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
 
     num_trajectories_to_predict = cfg.get("execution", {}).get("num_trajectories_to_predict", None)
     num_visualized_traj = cfg.get("execution", {}).get("num_visualized_traj", 10)
-    contexts_cfg = cfg.get("contexts", {})
 
-    # Instantiate correct module based on model name
     model_cfg = OmegaConf.to_container(cfg["model"], resolve=True) # Convert to regular dict to allow modifications
     optimizer_cfg = OmegaConf.to_container(cfg["optimizer"], resolve=True)
     loss_cfg = OmegaConf.to_container(cfg["loss"], resolve=True)
@@ -36,7 +34,6 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             cfg.seed,
             num_trajectories_to_predict=num_trajectories_to_predict,
             num_waypoints_to_predict=horizon_seq_len,
-            contexts_cfg=contexts_cfg,
         )
         model = AerionModule(
             model_cfg,
@@ -44,7 +41,6 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             loss_cfg,
             input_seq_len,
             horizon_seq_len,
-            contexts_cfg=contexts_cfg,
             scheduler_cfg=cfg.get("scheduler", None),
             scheduled_sampling_cfg=cfg.get("scheduled_sampling", None),
             num_visualized_traj=num_visualized_traj,
@@ -110,15 +106,8 @@ def log_important_parameters(cfg: DictConfig, trainer: Trainer, input_seq_len: i
     logger.info("\n%s", formatted)
 
 def add_wandb_tags(cfg: DictConfig) -> None:
-    # Add model and dataset tags as default to wandb tags
     cfg["wandb"]["tags"].append(cfg["model"]["name"])
     cfg["wandb"]["tags"].append(cfg["dataset"]["name"])
-    
-    # Add tags for all enabled contexts
-    contexts_cfg = cfg.get("contexts", {})
-    for context_name, context_config in contexts_cfg.items():
-        if context_config.get("enabled", False):
-            cfg["wandb"]["tags"].append(context_name)
     return cfg
 
 

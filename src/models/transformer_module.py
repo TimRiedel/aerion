@@ -35,7 +35,7 @@ class TransformerModule(BaseModule):
         target_rtd = batch["target_rtd"]
         flight_id = batch["flight_id"]
         runway = batch["runway"]
-
+        
         pred_deltas_norm, _ = self._predict_autoregressively(input_traj, dec_in_traj)
         pred_deltas_abs = self.denormalize_target_deltas(pred_deltas_norm)
         input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
@@ -59,7 +59,6 @@ class TransformerModule(BaseModule):
             input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
             prefix="train", num_trajectories=6
         )
-        
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -70,7 +69,7 @@ class TransformerModule(BaseModule):
         target_rtd = batch["target_rtd"]
         flight_id = batch["flight_id"]
         runway = batch["runway"]
-        
+
         pred_deltas_norm, _ = self._predict_autoregressively(input_traj, dec_in_traj)
         pred_deltas_abs = self.denormalize_target_deltas(pred_deltas_norm)
         input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
@@ -94,8 +93,8 @@ class TransformerModule(BaseModule):
             input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
             prefix="val", num_trajectories=self.num_visualized_traj
         )
+        
         return loss
-    
 
     def test_step(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
         raise NotImplementedError("Test step not implemented")
@@ -135,31 +134,35 @@ class TransformerModule(BaseModule):
         pad_mask = target_pad_mask[:, :num_steps] if target_pad_mask is not None else None
         
         causal_mask = self._generate_causal_mask(num_steps, input_traj.device)
-        pred_traj = self.model.decode(
+        pred_deltas_norm = self.model.decode(
             dec_in,
             memory,
             causal_mask=causal_mask,
             target_pad_mask=pad_mask,
         )
-        return pred_traj, memory
+        return pred_deltas_norm, memory
 
     
     def _predict_autoregressively(
         self,
         input_traj: torch.Tensor,
         dec_in_traj: torch.Tensor,
+        runway: Dict[str, torch.Tensor],
         num_steps: Optional[int] = None,
         memory: Optional[torch.Tensor] = None,
-        continued_decoding = False,
+        continue_decoding = False,
+        initial_position_abs: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Predict autoregressively.
         
         Args:
             input_traj: Normalized input trajectory [B, T_in, input_features]
             dec_in_traj: Normalized decoder input [B, H, dec_in_features] - used for initial token or as prefix
+            runway: Runway dictionary containing "xyz" coordinates and "bearing"
             num_steps: Number of steps to predict (default: horizon_seq_len)
             memory: Pre-computed encoder memory (optional, will encode if None)
-            continued_decoding: Whether to take the full dec_in_traj as the initial decoder input (True) or only the first token (False)
+            continue_decoding: Whether to take the full dec_in_traj as the initial decoder input (True) or only the first token (False). In the first case, recomputes the position from passed decoder deltas.
+            initial_position_abs: Starting position for autoregression in absolute (denormalized) coordinates [B, 3] (optional, defaults to last decoder input position)
         Returns:
             Tuple of (predictions [B, num_steps, 3], memory)
         """
@@ -169,11 +172,19 @@ class TransformerModule(BaseModule):
         if memory is None:
             memory = self.model.encode(input_traj)
 
-        # Initialize decoder input either with the full dec_in_traj (for continued decoding) or only the first token
-        current_dec_in = dec_in_traj if continued_decoding else dec_in_traj[:, 0:1, :]
+        # Initialize position tracking and decoder input
+        if continue_decoding:
+            if initial_position_abs is None:
+                raise ValueError("Initial_position must be provided if continue_decoding is True")
+            current_position_abs = initial_position_abs.clone()
+            current_dec_in = dec_in_traj
+        else:
+            input_abs = self.denormalize_inputs(input_traj)
+            current_position_abs = input_abs[:, -1, :3].clone()  # [B, 3] # take last position of input trajectory as starting position
+            current_dec_in = dec_in_traj[:, 0:1, :] # take first token of decoder input as decoder input
 
         # Autoregressive loop
-        all_predictions = []
+        all_predictions_norm = []
         for i in range(num_steps):
             current_seq_len = current_dec_in.size(1)
             target_mask = self._generate_causal_mask(current_seq_len, input_traj.device)
@@ -197,13 +208,13 @@ class TransformerModule(BaseModule):
                     causal_mask=target_mask,
                     target_pad_mask=None,  # No padding mask during AR to avoid sequence length leakage
                 )
-            next_step_pred = output[:, -1:, :]  # [B, 1, output_features]
-            all_predictions.append(next_step_pred)
+            pred_deltas_norm = output[:, -1:, :]  # [B, 1, 3]
+            all_predictions_norm.append(pred_deltas_norm)
             
-            current_dec_in = torch.cat([current_dec_in, next_step_pred], dim=1)
+            current_dec_in = torch.cat([current_dec_in, pred_deltas_norm], dim=1)
 
-        pred_traj = torch.cat(all_predictions, dim=1)  # [B, num_steps, output_features]
-        return pred_traj, memory
+        pred_deltas_norm = torch.cat(all_predictions_norm, dim=1)  # [B, num_steps, 3]
+        return pred_deltas_norm, memory
 
 
     def _predict_scheduled_sampling(
@@ -211,9 +222,16 @@ class TransformerModule(BaseModule):
         input_traj: torch.Tensor,
         dec_in_traj: torch.Tensor,
         target_traj: torch.Tensor,
+        runway: Dict[str, torch.Tensor],
         target_pad_mask: torch.Tensor,
         batch_idx: int,
     ) -> torch.Tensor:
+        """
+        Predict using scheduled sampling (curriculum learning).
+        
+        Uses teacher forcing for the first `tf_steps` timesteps, then switches to
+        autoregressive prediction for the remaining timesteps.
+        """
         tf_steps = self._compute_teacher_forcing_steps()
         ar_steps = self.horizon_seq_len - tf_steps
         
@@ -232,27 +250,38 @@ class TransformerModule(BaseModule):
         # Special case: Full autoregressive
         if tf_steps <= 0:
             pred_traj, _ = self._predict_autoregressively(
-                input_traj, dec_in_traj
+                input_traj, dec_in_traj, runway
             )
             return pred_traj
         
         # Mixed mode: Teacher forcing prefix + autoregressive suffix
         # Teacher forcing phase
-        tf_pred, memory = self._predict_teacher_forcing(
+        tf_pred_deltas_norm, memory = self._predict_teacher_forcing(
             input_traj, dec_in_traj, target_pad_mask, num_steps=tf_steps
         )
 
-        last_tf_pred = tf_pred[:, -1:, :]
-        ar_start_dec_in = torch.cat([dec_in_traj[:, :tf_steps, :], last_tf_pred], dim=1)
+        # Compute absolute position after TF phase
+        input_abs = self.denormalize_inputs(input_traj)
+        gt_deltas_abs = self.denormalize_target_deltas(target_traj[:, :tf_steps, :])
+        position_before_last_tf_abs = input_abs[:, -1, :3] + gt_deltas_abs[:, :-1, :].sum(dim=1)  # [B, 3]
+
+        # Build AR prefix: ground truth dec_in for TF steps + model's last prediction (full features)
+        last_delta_norm = tf_pred_deltas_norm[:, -1:, :]
+        last_tf_dec_in, position_after_last_tf_abs = self._build_next_decoder_input(
+            last_delta_norm, position_before_last_tf_abs,
+            runway["xyz"], runway["centerline_points_xy"]
+        )
+        ar_start_dec_in = torch.cat([dec_in_traj[:, :tf_steps, :], last_tf_dec_in], dim=1)
         
         # Autoregressive phase
-        ar_pred, _ = self._predict_autoregressively(
-            input_traj, ar_start_dec_in,
+        ar_pred_deltas_norm, _ = self._predict_autoregressively(
+            input_traj, ar_start_dec_in, runway,
             num_steps=ar_steps,
             memory=memory,
-            continued_decoding=True,
+            continue_decoding=True,
+            initial_position_abs=position_after_last_tf_abs,
         )
         
         # Concatenate predictions
-        pred_traj = torch.cat([tf_pred, ar_pred], dim=1)  # [B, H, 3]
-        return pred_traj
+        pred_deltas_norm = torch.cat([tf_pred_deltas_norm, ar_pred_deltas_norm], dim=1)  # [B, H, 3]
+        return pred_deltas_norm

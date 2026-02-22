@@ -29,7 +29,6 @@ class AerionData(ApproachData):
         dist_std: torch.Tensor = None,
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
-        contexts_cfg: DictConfig = None,
     ):
         super().__init__(
             dataset_cfg=dataset_cfg,
@@ -43,7 +42,6 @@ class AerionData(ApproachData):
             num_trajectories_to_predict=num_trajectories_to_predict,
             num_waypoints_to_predict=num_waypoints_to_predict,
         )
-        self.contexts_cfg = contexts_cfg or {}
         self.dist_mean = dist_mean
         self.dist_std = dist_std
 
@@ -58,13 +56,12 @@ class AerionData(ApproachData):
             full_train_ds = AerionDataset(
                 inputs_path=self.dataset_cfg.train_inputs_path,
                 horizons_path=self.dataset_cfg.train_horizons_path,
-                flightinfo_path=self.dataset_cfg.get("flightinfo_path"),
+                flightinfo_path=self.dataset_cfg.flightinfo_path,
                 input_time_minutes=self.dataset_cfg.input_time_minutes,
                 horizon_time_minutes=self.dataset_cfg.horizon_time_minutes,
                 resampling_rate_seconds=self.dataset_cfg.resampling_rate_seconds,
                 num_trajectories_to_predict=self.num_trajectories_to_predict,
                 num_waypoints_to_predict=self.num_waypoints_to_predict,
-                contexts_cfg=self.contexts_cfg,
             )
 
             val_pct = self.dataset_cfg.get('val_pct', 0.1)
@@ -81,14 +78,13 @@ class AerionData(ApproachData):
             self.test_ds = AerionDataset(
                 inputs_path=self.dataset_cfg.test_inputs_path,
                 horizons_path=self.dataset_cfg.test_horizons_path,
-                flightinfo_path=self.dataset_cfg.get("flightinfo_path"),
+                flightinfo_path=self.dataset_cfg.flightinfo_path,
                 input_time_minutes=self.dataset_cfg.input_time_minutes,
                 horizon_time_minutes=self.dataset_cfg.horizon_time_minutes,
                 resampling_rate_seconds=self.dataset_cfg.resampling_rate_seconds,
                 num_trajectories_to_predict=self.num_trajectories_to_predict,
                 num_waypoints_to_predict=self.num_waypoints_to_predict,
                 transform=T.Compose(self._get_transforms()),
-                contexts_cfg=self.contexts_cfg,
             )
 
 

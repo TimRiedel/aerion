@@ -1,9 +1,9 @@
 # Aerion model configuration
-# Context-aware transformer for trajectory prediction
+# Same SingleAgentTransformer backbone as baseline; uses centerline distance features (encoder 16, decoder 14).
 
 name: aerion
 params:
-  _target_: models.architectures.aerion.Aerion
+  _target_: models.architectures.transformer.TrajectoryTransformer
   batch_first: true
 
   encoder_input_dim: 16  # 3 absolute positions + 3 deltas + 10 distance features (threshold + 4 centerline points)

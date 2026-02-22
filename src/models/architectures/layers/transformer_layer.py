@@ -2,14 +2,13 @@ import torch
 import torch.nn as nn
 from typing import Optional
 
-class ContextAwareTransformerEncoderLayer(nn.Module):
+class CustomTransformerEncoderLayer(nn.Module):
     """
-    Transformer encoder layer with optional cross-attention to context embeddings.
+    Transformer encoder layer.
     
     Structure:
     1. Self-attention on trajectory
-    2. Cross-attention to flightinfo context (if enabled)
-    3. Feed-forward network
+    2. Feed-forward network
     """
     
     def __init__(
@@ -19,26 +18,14 @@ class ContextAwareTransformerEncoderLayer(nn.Module):
         dim_feedforward: int = 512,
         dropout: float = 0.1,
         batch_first: bool = True,
-        use_flightinfo: bool = True,
     ):
         super().__init__()
-        
-        self.use_flightinfo = use_flightinfo
-        
         # Self-attention
         self.self_attention = nn.MultiheadAttention(
             d_model, nhead, dropout=dropout, batch_first=batch_first
         )
         self.dropout_sattn = nn.Dropout(dropout)
         self.norm_sattn = nn.LayerNorm(d_model)
-        
-        # Cross-attention to flightinfo (optional)
-        if self.use_flightinfo:
-            self.flightinfo_cross_attn = nn.MultiheadAttention(
-                d_model, nhead, dropout=dropout, batch_first=batch_first
-            )
-            self.dropout_flightinfo = nn.Dropout(dropout)
-            self.norm_flightinfo = nn.LayerNorm(d_model)
         
         # Feed-forward network
         self.feedforward = nn.Sequential(
@@ -54,12 +41,10 @@ class ContextAwareTransformerEncoderLayer(nn.Module):
     def forward(
         self,
         traj_emb: torch.Tensor,
-        flightinfo_emb: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Args:
             traj: Trajectory embeddings [batch, seq_len, d_model]
-            flightinfo_emb: Encoded flightinfo [batch, 1, d_model] or None
             
         Returns:
             Updated trajectory embeddings [batch, seq_len, d_model]
@@ -69,17 +54,8 @@ class ContextAwareTransformerEncoderLayer(nn.Module):
         traj_emb += self.dropout_sattn(self_attention_out)
         traj_emb = self.norm_sattn(traj_emb)
         
-        # 2. Cross-attention to flightinfo (if enabled and provided)
-        if self.use_flightinfo and flightinfo_emb is not None:
-            cross_attention_out, _ = self.flightinfo_cross_attn(
-                query=traj_emb,
-                key=flightinfo_emb,
-                value=flightinfo_emb
-            )
-            traj_emb += self.dropout_flightinfo(cross_attention_out)
-            traj_emb = self.norm_flightinfo(traj_emb)
         
-        # 3. Feed-forward network
+        # 2. Feed-forward network
         ffn_out = self.feedforward(traj_emb)
         traj_emb = traj_emb + self.dropout_ffn(ffn_out)
         traj_emb = self.norm_ffn(traj_emb)
@@ -87,15 +63,14 @@ class ContextAwareTransformerEncoderLayer(nn.Module):
         return traj_emb
 
 
-class ContextAwareTransformerDecoderLayer(nn.Module):
+class CustomTransformerDecoderLayer(nn.Module):
     """
-    Transformer decoder layer with optional cross-attention to context embeddings.
+    Transformer decoder layer.
     
     Structure:
     1. Causal self-attention on target sequence
     2. Cross-attention to encoder memory
-    3. Cross-attention to flightinfo context (if enabled)
-    4. Feed-forward network
+    3. Feed-forward network
     """
     
     def __init__(
@@ -105,11 +80,8 @@ class ContextAwareTransformerDecoderLayer(nn.Module):
         dim_feedforward: int = 512,
         dropout: float = 0.1,
         batch_first: bool = True,
-        use_flightinfo: bool = True,
     ):
         super().__init__()
-        
-        self.use_flightinfo = use_flightinfo
         
         # Self-attention (causal for autoregressive decoding)
         self.self_attention = nn.MultiheadAttention(
@@ -124,14 +96,6 @@ class ContextAwareTransformerDecoderLayer(nn.Module):
         )
         self.dropout_memory = nn.Dropout(dropout)
         self.norm_memory = nn.LayerNorm(d_model)
-        
-        # Cross-attention to flightinfo (optional)
-        if self.use_flightinfo:
-            self.flightinfo_cross_attn = nn.MultiheadAttention(
-                d_model, nhead, dropout=dropout, batch_first=batch_first
-            )
-            self.dropout_flightinfo = nn.Dropout(dropout)
-            self.norm_flightinfo = nn.LayerNorm(d_model)
         
         # Feed-forward network
         self.feedforward = nn.Sequential(
@@ -149,7 +113,6 @@ class ContextAwareTransformerDecoderLayer(nn.Module):
         memory: torch.Tensor,
         target_mask: Optional[torch.Tensor] = None,
         target_key_padding_mask: Optional[torch.Tensor] = None,
-        flightinfo_emb: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -157,7 +120,6 @@ class ContextAwareTransformerDecoderLayer(nn.Module):
             memory: Encoder memory [batch, src_len, d_model]
             target_mask: Causal mask for self-attention [seq_len, seq_len]
             target_key_padding_mask: Padding mask for target [batch, seq_len] (True = padded)
-            flightinfo_emb: Encoded flightinfo [batch, 1, d_model] or None
             
         Returns:
             Updated target embeddings [batch, seq_len, d_model]
@@ -182,17 +144,7 @@ class ContextAwareTransformerDecoderLayer(nn.Module):
         target_emb += self.dropout_memory(memory_attention_out)
         target_emb = self.norm_memory(target_emb)
         
-        # 3. Cross-attention to flightinfo (if enabled and provided)
-        if self.use_flightinfo and flightinfo_emb is not None:
-            flightinfo_attention_out, _ = self.flightinfo_cross_attn(
-                query=target_emb,
-                key=flightinfo_emb,
-                value=flightinfo_emb,
-            )
-            target_emb += self.dropout_flightinfo(flightinfo_attention_out)
-            target_emb = self.norm_flightinfo(target_emb)
-        
-        # 4. Feed-forward network
+        # 3. Feed-forward network
         ffn_out = self.feedforward(target_emb)
         target_emb += self.dropout_ffn(ffn_out)
         target_emb = self.norm_ffn(target_emb)

@@ -25,5 +25,4 @@ ulimit -n 8192
 python src/main.py --config-name=execute_aerion \
     stage=train \
     experiment_name=aerion-train \
-    dataset=first3days \
-    contexts.flightinfo.enabled=true
+    dataset=first3days

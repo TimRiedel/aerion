@@ -31,8 +31,3 @@ scheduled_sampling:
 
 dataloader:
   batch_size: 3072
-
-contexts:
-  flightinfo:
-    enabled: false
-    num_runways: 4  # e.g., EDDB has 4 runways: 06L, 06R, 24L, 24R

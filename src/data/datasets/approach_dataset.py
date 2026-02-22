@@ -57,12 +57,7 @@ class ApproachDataset(Dataset):
         self.size = len(self.flight_ids)
 
         # Construct runway features
-        self.flightinfo_df = None
-        self.runway_categories = None
-        if flightinfo_path is not None:
-            self.flightinfo_df = pd.read_parquet(flightinfo_path).set_index("flight_id")
-            self.runway_categories = sorted(self.flightinfo_df["runway"].unique().tolist())
-
+        self.flightinfo_df = pd.read_parquet(flightinfo_path).set_index("flight_id")
         unique_airport_runways = self.flightinfo_df[["airport", "runway"]].dropna().drop_duplicates().values.tolist()
         self.runway_features = construct_runway_features(unique_airport_runways)
     

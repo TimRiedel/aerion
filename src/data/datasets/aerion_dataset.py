@@ -1,6 +1,4 @@
 import torch
-import numpy as np
-import re
 import pandas as pd
 from torch.utils.data import Dataset
 from omegaconf import DictConfig
@@ -12,37 +10,6 @@ from .approach_dataset import ApproachDataset
 
 
 class AerionDataset(ApproachDataset):
-    def __init__(
-        self,
-        inputs_path: str,
-        horizons_path: str,
-        flightinfo_path: str,
-        input_time_minutes: int,
-        horizon_time_minutes: int,
-        resampling_rate_seconds: int,
-        num_trajectories_to_predict: int = None,
-        num_waypoints_to_predict: int = None,
-        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-        contexts_cfg: Optional[DictConfig] = None,
-    ):
-        super().__init__(
-            inputs_path=inputs_path,
-            horizons_path=horizons_path,
-            flightinfo_path=flightinfo_path,
-            input_time_minutes=input_time_minutes,
-            horizon_time_minutes=horizon_time_minutes,
-            resampling_rate_seconds=resampling_rate_seconds,
-            num_trajectories_to_predict=num_trajectories_to_predict,
-            num_waypoints_to_predict=num_waypoints_to_predict,
-            transform=transform,
-        )
-        self.contexts_cfg = contexts_cfg or {}
-
-
-    def _is_context_enabled(self, name: str) -> bool:
-        """Check if a context is enabled in the configuration."""
-        return self.contexts_cfg.get(name, {}).get("enabled", False)
-
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         flight_id = self.flight_ids[idx]
         input_traj_pos, input_traj_deltas, target_traj_pos, target_traj_deltas, dec_in_pos, dec_in_deltas, mask_traj = self._compute_inputs_outputs(idx)
@@ -76,21 +43,8 @@ class AerionDataset(ApproachDataset):
             "runway": runway_data,
             "flight_id": flight_id
         }
-        
-        if self._is_context_enabled("flightinfo"):
-            sample["flightinfo"] = self._get_flightinfo(flight_id)
 
         if self.transform is not None:
             sample = self.transform(sample)
 
         return sample
-
-    def _get_flightinfo(self, flight_id: str) -> torch.Tensor:
-        flight_id_without_sample_index = re.sub(r"_S\d+$", "", flight_id) # Remove trailing _S+digits
-        flightinfo = self.flightinfo_df.loc[flight_id_without_sample_index]
-
-        # Create one-hot encoding for runway
-        one_hot = np.zeros(len(self.runway_categories), dtype=np.float32)
-        runway_idx = self.runway_categories.index(flightinfo["runway"])
-        one_hot[runway_idx] = 1.0
-        return torch.from_numpy(one_hot)
