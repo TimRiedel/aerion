@@ -1,3 +1,4 @@
+import matplotlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,7 +7,17 @@ from traffic.data import airports
 from traffic.core import Flight
 
 
-def plot_predictions_targets(input_traj: np.ndarray, target_traj: np.ndarray, pred_traj: np.ndarray, padding_mask: np.ndarray, icao: str, flight_id: str = None):
+def plot_predictions_targets(
+    input_traj: np.ndarray,
+    target_traj: np.ndarray,
+    pred_traj: np.ndarray,
+    padding_mask: np.ndarray,
+    icao: str,
+    flight_id: str = None,
+    target_rtd: float = None,
+    pred_rtd: float = None,
+    cmap: str = "viridis",
+):
     """
     Plot prediction vs groundtruth in X/Y space (km) with altitude profile below.
     
@@ -18,10 +29,18 @@ def plot_predictions_targets(input_traj: np.ndarray, target_traj: np.ndarray, pr
         Target trajectory [horizon_seq_len, 3] (x, y, altitude in meters)
     pred_traj : np.ndarray
         Predicted trajectory [horizon_seq_len, 3] (x, y, altitude in meters)
-    icao : str
-        ICAO airport code for plotting runways
     padding_mask : np.ndarray
         Padding mask [horizon_seq_len]
+    icao : str
+        ICAO airport code for plotting runways
+    flight_id : str
+        Flight ID
+    target_rtd : float
+        Target RTD in meters
+    pred_rtd : float
+        Predicted RTD in meters
+    cmap : str
+        Colormap to use for the colors
     
     Returns:
     --------
@@ -42,13 +61,15 @@ def plot_predictions_targets(input_traj: np.ndarray, target_traj: np.ndarray, pr
     target_x_km, target_y_km = target_traj[:, 0] / 1000, target_traj[:, 1] / 1000
     pred_x_km, pred_y_km = pred_traj[:, 0] / 1000, pred_traj[:, 1] / 1000
     input_alt, target_alt, pred_alt = input_traj[:, 2], target_traj[:, 2], pred_traj[:, 2]
-    
     # Create figure with GridSpec for precise control over subplot alignment
     fig = plt.figure(figsize=(10, 12), dpi=dpi)
     gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.2)
     ax_xy = fig.add_subplot(gs[0])
     ax_alt = fig.add_subplot(gs[1])
-    
+
+    # Reduce outer whitespace and reserve a bit of space at the top for titles.
+    # This keeps both subplots aligned while shrinking the overall margins.
+
     # Plot airport runways in X/Y space
     ax_xy = add_airport_runways_xy(ax_xy, icao)
     
@@ -58,24 +79,30 @@ def plot_predictions_targets(input_traj: np.ndarray, target_traj: np.ndarray, pr
     pred_x_connected = np.concatenate([[input_x_km[-1]], pred_x_km])
     pred_y_connected = np.concatenate([[input_y_km[-1]], pred_y_km])
 
-    ax_xy.plot(input_x_km, input_y_km, color='blue', linewidth=linewidth, label='Input', zorder=3)
-    ax_xy.plot(target_x_connected, target_y_connected, color='gold', linewidth=linewidth, label='Target', zorder=3)
-    ax_xy.plot(pred_x_connected, pred_y_connected, color='red', linewidth=linewidth, label='Prediction', zorder=3)
+    # Get colors from colormap
+    factors = [0.2, 0.55]
+    cmap = matplotlib.colormaps[cmap]
+    input_color = cmap(factors[0])
+    pred_color = cmap(factors[1])
+    target_color = "gold"
+
+    ax_xy.plot(input_x_km, input_y_km, color=input_color, linewidth=linewidth, label='Input', zorder=3)
+    ax_xy.plot(target_x_connected, target_y_connected, color=target_color, linewidth=linewidth, label='Target', zorder=3)
+    ax_xy.plot(pred_x_connected, pred_y_connected, color=pred_color, linewidth=linewidth, label='Prediction', zorder=3)
     
     all_x_km = np.concatenate([input_x_km, target_x_km, pred_x_km])
     all_y_km = np.concatenate([input_y_km, target_y_km, pred_y_km])
     bounds_xy_km = compute_xy_bounds(all_x_km, all_y_km)
     ax_xy = set_xy_axis_config(ax_xy, bounds_xy_km)
-    ax_xy = set_title(ax_xy, icao, flight_id)
 
     # Plot altitude profile
     input_steps, target_steps, horizon_len = calculate_target_steps(input_alt, target_alt, padding_mask)
     target_alt_connected = np.concatenate([[input_alt[-1]], target_alt])
     pred_alt_connected = np.concatenate([[input_alt[-1]], pred_alt])
     
-    ax_alt.plot(input_steps, input_alt, color='blue', linewidth=linewidth, label='Input')
-    ax_alt.plot(target_steps, target_alt_connected, color='gold', linewidth=linewidth, label='Target')
-    ax_alt.plot(target_steps, pred_alt_connected, color='red', linewidth=linewidth, label='Prediction')
+    ax_alt.plot(input_steps, input_alt, color=input_color, linewidth=linewidth, label='Input')
+    ax_alt.plot(target_steps, target_alt_connected, color=target_color, linewidth=linewidth, label='Target')
+    ax_alt.plot(target_steps, pred_alt_connected, color=pred_color, linewidth=linewidth, label='Prediction')
     
     ax_alt = set_altitude_axis_config(ax_alt, len(input_alt), horizon_len)
     
@@ -83,7 +110,8 @@ def plot_predictions_targets(input_traj: np.ndarray, target_traj: np.ndarray, pr
     pos_xy = ax_xy.get_position()
     pos_alt = ax_alt.get_position()
     ax_alt.set_position([pos_xy.x0, pos_alt.y0, pos_xy.width, pos_alt.height])
-    
+    set_title(fig, ax_xy, icao, flight_id, target_rtd, pred_rtd)
+
     return fig, (ax_xy, ax_alt)
 
 def set_xy_axis_config(ax, bounds_xy_km):
@@ -92,7 +120,7 @@ def set_xy_axis_config(ax, bounds_xy_km):
     ax.set_xlabel('X (km)')
     ax.set_ylabel('Y (km)')
     ax.set_aspect('equal')
-    ax.legend(loc='upper right')
+    ax.legend(loc='lower right')
     ax.grid(True, linestyle='--', alpha=0.5)
     return ax
 
@@ -105,18 +133,72 @@ def set_altitude_axis_config(ax, input_len, horizon_len):
     ax.axvline(x=0, color='gray', linestyle='-', linewidth=1, alpha=0.7)
     return ax
 
-def set_title(ax, icao, flight_id):
-    title = 'Prediction vs Target'
-    if icao:
-        title += f' - {icao}'
+def set_title(fig, ax_ref, icao, flight_id, target_rtd=None, pred_rtd=None):
+
+    main_title = "Prediction vs Target"  # default title
+    subtitle = ""
     if flight_id:
         splits = flight_id.split('_')
         callsign = splits[0]
         date = splits[2]
-        date = pd.to_datetime(date).strftime('%Y-%m-%d')
-        title += f' - {callsign} - {date}'
-    ax.set_title(title)
-    return ax
+        date = pd.to_datetime(date).strftime("%d %b, %Y")
+        flight_id_label = f'Flight: {callsign}'
+        main_title = flight_id_label
+
+        subtitle = ""
+        if icao:
+            subtitle += f'{icao} on '
+        subtitle += f'{date}'
+
+    # Use the reference axes to align text with the actual plotting area
+    bbox = ax_ref.get_position()
+    left_x = bbox.x0
+    right_x = bbox.x0 + bbox.width
+
+    # First line: left = main title (Flight ID or fallback)
+    y_top = 0.93
+    line_spacing = 0.025
+
+    # Left side main title (larger), aligned with left edge of axes
+    fig.text(
+        left_x,
+        y_top,
+        main_title,
+        ha="left",
+        va="top",
+        fontsize=16,
+    )
+
+    # Second line: left = airport/date, right = RTD label (both grey, smaller)
+    if subtitle:
+        fig.text(
+            left_x,
+            y_top - line_spacing,
+            subtitle,
+            ha="left",
+            va="top",
+            fontsize=11,
+            color="grey",
+            style="italic",
+        )
+
+    if target_rtd is not None and pred_rtd is not None:
+        rtd_label = (
+            f"Target RTD: {target_rtd / 1000:.1f} km | "
+            f"Predicted RTD: {pred_rtd / 1000:.1f} km"
+        )
+        fig.text(
+            right_x,
+            y_top - line_spacing,
+            rtd_label,
+            ha="right",
+            va="top",
+            fontsize=11,
+            color="grey",
+            style="italic",
+        )
+
+
 
 def calculate_target_steps(input_feat, target_feat, padding_mask):
     input_len = len(input_feat)

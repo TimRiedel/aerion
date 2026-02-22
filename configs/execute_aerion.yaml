@@ -14,16 +14,25 @@ defaults:
 experiment_name: "aerion-debug"
 
 trainer:
-  max_epochs: 100
+  max_epochs: 40
 
 optimizer:
   _target_: torch.optim.AdamW
   lr: 1e-3
-  weight_decay: 0.0
+  weight_decay: 0.01
+
+scheduler:
+  warmup_epochs: 5
+
+scheduled_sampling:
+  enabled: true
+  teacher_forcing_epochs: 1
+  transition_epochs: 15
 
 dataloader:
   batch_size: 3072
 
-data_processing:
-  icao_code: "EDDB"
-  feature_cols: ["latitude", "longitude", "altitude", "groundspeed", "track", "vertical_rate"]
+contexts:
+  flightinfo:
+    enabled: false
+    num_runways: 4  # e.g., EDDB has 4 runways: 06L, 06R, 24L, 24R

@@ -1,156 +1,99 @@
-from visualization.predictions_targets import plot_predictions_targets
-import wandb
-import pytorch_lightning as pl
 import torch
-import torch.nn as nn
-from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
-from typing import Any, Dict, Tuple
-from omegaconf import DictConfig
-from hydra.utils import instantiate
+from typing import Any, Dict, Optional
+from torch.utils import checkpoint
 
-from data.transforms.normalize import ZScoreDenormalize
+from data.transforms.normalize import Denormalizer, Normalizer
+from models.base_module import BaseModule
+from data.utils.trajectory import compute_rtd
 
 
-class TransformerModule(pl.LightningModule):
-    def __init__(
-        self,
-        model_cfg: DictConfig,
-        optimizer_cfg: DictConfig,
-        input_seq_len: int,
-        horizon_seq_len: int,
-        scheduler_cfg: DictConfig = None,
-        num_visualized_traj: int = 10,
-    ):
-        super().__init__()
-        self.save_hyperparameters(ignore=["datamodule"])
-        self.model = instantiate(model_cfg["params"])
-        self.optimizer_cfg = optimizer_cfg
-        self.scheduler_cfg = scheduler_cfg
-        self.input_seq_len = input_seq_len
-        self.horizon_seq_len = horizon_seq_len
-        # Evaluation horizons
-        predefined_horizons = [1, 3, 6, 15, 30, 45, 60, 75, 90, 105, 120]
-        self.evaluation_horizons = [h for h in predefined_horizons if h <= self.horizon_seq_len]
-        self.num_visualized_traj = num_visualized_traj
-        
-        # Loss function
-        self.criterion = nn.MSELoss(reduction="none")
-        
-
+class TransformerModule(BaseModule):
     def on_fit_start(self):
         dm = self.trainer.datamodule
-
-        # Store stats for denormalization
-        self.register_buffer("pos_mean", dm.pos_mean)
-        self.register_buffer("pos_std", dm.pos_std)
-        self.register_buffer("delta_mean", dm.delta_mean)
-        self.register_buffer("delta_std", dm.delta_std)
-
+        
+        # Inputs are [Pos(3) + Delta(3)]
         input_mean = torch.cat([dm.pos_mean, dm.delta_mean], dim=0)
         input_std = torch.cat([dm.pos_std, dm.delta_std], dim=0)
-        self.denormalize_inputs = ZScoreDenormalize(input_mean, input_std) # Inputs are positions and deltas [6]
-        self.denormalize_targets = ZScoreDenormalize(dm.delta_mean, dm.delta_std) # Targets and decoder input are pure deltas [3]
-
-
-    def on_validation_epoch_start(self):
-        H = self.horizon_seq_len          # All horizons
-        F = self.model.decoder_input_dim  # Number features
-
-        device = self.device
-
-        # Per-horizon accumulators
-        self.val_sum_abs_error = torch.zeros(H, F, device=device)
-        self.val_sum_sq_error = torch.zeros(H, F, device=device)
-        self.val_sum_dist_2d = torch.zeros(H, device=device)
-        self.val_sum_dist_3d = torch.zeros(H, device=device)
-        self.val_count_valid_waypoints = torch.zeros(H, device=device) # Shape: [H]
-
-        # Aggregate MDE accumulators (Max Displacement Error)
-        self.val_sum_of_max_dist_2d = torch.tensor(0.0, device=device)
-        self.val_sum_of_max_dist_3d = torch.tensor(0.0, device=device)
-        self.val_count_traj = torch.tensor(0.0, device=device) # Shape: [1]
-
-
-    def on_validation_epoch_end(self):
-        for tensor in [  # Needed for DDP
-            self.val_sum_abs_error,
-            self.val_sum_sq_error,
-            self.val_sum_dist_2d,
-            self.val_sum_dist_3d,
-            self.val_sum_of_max_dist_2d,
-            self.val_sum_of_max_dist_3d,
-            self.val_count_valid_waypoints,
-            self.val_count_traj,
-        ]:
-            self.trainer.strategy.reduce(tensor, reduce_op="sum")
-
-        # count.shape: [H, 1]
-        count = self.val_count_valid_waypoints.clamp(min=1.0).unsqueeze(1)
         
-        # mae.shape = rmse.shape: [H, F]
-        mae = self.val_sum_abs_error / count
-        rmse = torch.sqrt(self.val_sum_sq_error / count)
+        self.denormalize_inputs = Denormalizer(input_mean, input_std)
+        self.denormalize_target_deltas = Denormalizer(dm.delta_mean, dm.delta_std)
+        self.normalize_positions = Normalizer(dm.pos_mean, dm.pos_std)
 
-        # ade.shape: [H] -> Remove feature dim for 1D tensors
-        count_1d = count.squeeze(1)
-        ade2d_seq = self.val_sum_dist_2d / count_1d
-        ade3d_seq = self.val_sum_dist_3d / count_1d
-
-        # --- Logging Plots (filtered by evaluation_horizons) ---
-        eval_indices = [h - 1 for h in self.evaluation_horizons]
-        
-        # Extract specific horizons for plotting
-        mae_plot = mae[eval_indices]
-        rmse_plot = rmse[eval_indices]
-        ade2d_plot = ade2d_seq[eval_indices].unsqueeze(1)
-        ade3d_plot = ade3d_seq[eval_indices].unsqueeze(1)
-
-        for feature in ["X", "Y", "Altitude"]:
-            self._log_error_vs_horizon(mae_plot, "MAE", feature)
-            self._log_error_vs_horizon(rmse_plot, "RMSE", feature)
-
-        self._log_error_vs_horizon(ade2d_plot, "ADE2D")
-        self._log_error_vs_horizon(ade3d_plot, "ADE3D")
-
-        # --- Logging Aggregates (Scalars) ---
-        total_valid_points = self.val_count_valid_waypoints.sum() # Number of valid waypoints over all horizons
-        total_trajectories = self.val_count_traj.clamp(min=1.0)
-
-        # ADE (Average of Euclidean Distance per valid waypoint)
-        ade2d_scalar = self.val_sum_dist_2d.sum() / total_valid_points
-        ade3d_scalar = self.val_sum_dist_3d.sum() / total_valid_points
-
-        # MDE (Average of Max Displacement per trajectory)
-        mde_scalar = self.val_sum_of_max_dist_2d / total_trajectories
-
-        self.log_dict({
-            "val/ADE2D": ade2d_scalar,
-            "val/ADE3D": ade3d_scalar,
-            # "val/FDE": ade3d_seq[-1], # TODO: must be FDE at last horizon (without padding -> separately aggregated)
-            "val/MDE": mde_scalar,
-        })
-
+        # Register as submodules so they're moved to the correct device automatically
+        self.add_module("denormalize_inputs", self.denormalize_inputs)
+        self.add_module("denormalize_target_deltas", self.denormalize_target_deltas)
+        self.add_module("normalize_positions", self.normalize_positions)
+        self.denormalize_inputs.to(self.device)
+        self.denormalize_target_deltas.to(self.device)
+        self.normalize_positions.to(self.device)
 
     def training_step(self, batch, batch_idx):
-        x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
+        input_traj = batch["input_traj"]
+        target_traj = batch["target_traj"]
+        dec_in_traj = batch["dec_in_traj"]
+        target_pad_mask = batch["mask_traj"]
+        target_rtd = batch["target_rtd"]
+        flight_id = batch["flight_id"]
+        runway = batch["runway"]
 
-        predictions = self._predict_teacher_forcing(x, dec_in, tgt_pad_mask)
-            
-        loss = self._compute_loss(predictions, y, tgt_pad_mask)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
+        pred_deltas_norm, _ = self._predict_autoregressively(input_traj, dec_in_traj)
+        pred_deltas_abs = self.denormalize_target_deltas(pred_deltas_norm)
+        input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
+        pred_pos_norm = self.normalize_positions(pred_pos_abs)
+        target_pos_norm = self.normalize_positions(target_pos_abs)
+
+        # We use the raw cumulative trajectory distance for the loss, but for the metrics we add the distance to the threshold to get the RTD.
+        pred_traj_distance, pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
+
+        loss, loss_info = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, pred_deltas_abs, target_pad_mask, pred_traj_distance, target_rtd, runway)
+        self._log_loss(loss, loss_info, prefix="train", batch_size=len(input_traj))
+
+        self.train_metrics.update(
+            pred_pos_abs=pred_pos_abs,
+            target_pos_abs=target_pos_abs,
+            target_pad_mask=target_pad_mask,
+            pred_rtd=pred_rtd,
+            target_rtd=target_rtd,
+        )
+        self._plot_prediction_vs_target(
+            input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
+            prefix="train", num_trajectories=6
+        )
         
         return loss
     
     def validation_step(self, batch, batch_idx):
-        x, y, dec_in, tgt_pad_mask = batch["x"], batch["y"], batch["dec_in"], batch["mask"]
+        input_traj = batch["input_traj"]
+        target_traj = batch["target_traj"]
+        dec_in_traj = batch["dec_in_traj"]
+        target_pad_mask = batch["mask_traj"]
+        target_rtd = batch["target_rtd"]
+        flight_id = batch["flight_id"]
+        runway = batch["runway"]
         
-        predictions = self._predict_autoregressively(x, dec_in, tgt_pad_mask)
-        loss = self._compute_loss(predictions, y, tgt_pad_mask)
-        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(x))
+        pred_deltas_norm, _ = self._predict_autoregressively(input_traj, dec_in_traj)
+        pred_deltas_abs = self.denormalize_target_deltas(pred_deltas_norm)
+        input_pos_abs, target_pos_abs, pred_pos_abs = self._reconstruct_absolute_positions(input_traj, target_traj, pred_deltas_norm, target_pad_mask)
+        pred_pos_norm = self.normalize_positions(pred_pos_abs)
+        target_pos_norm = self.normalize_positions(target_pos_abs)
 
-        input_abs, tgt_abs, pred_abs = self._reconstruct_absolute_positions(x, y, predictions, tgt_pad_mask)
-        self._evaluate_step(pred_abs, tgt_abs, tgt_pad_mask)
-        self._visualize_prediction_vs_targets(input_abs, tgt_abs, pred_abs, tgt_pad_mask, batch_idx)
+        # We use the raw cumulative trajectory distance for the loss, but for the metrics we add the distance to the threshold to get the RTD.
+        pred_traj_distance, pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway["xyz"], runway["bearing"])
+
+        loss, _ = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, pred_deltas_abs, target_pad_mask, pred_traj_distance, target_rtd, runway)
+        self._log_loss(loss, prefix="val", batch_size=len(input_traj)) # do not log loss info for validation
+
+        self.val_metrics.update(
+            pred_pos_abs=pred_pos_abs,
+            target_pos_abs=target_pos_abs,
+            target_pad_mask=target_pad_mask,
+            pred_rtd=pred_rtd,
+            target_rtd=target_rtd,
+        )
+        self._plot_prediction_vs_target(
+            input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
+            prefix="val", num_trajectories=self.num_visualized_traj
+        )
         return loss
     
 
@@ -158,209 +101,158 @@ class TransformerModule(pl.LightningModule):
         raise NotImplementedError("Test step not implemented")
 
 
-    def _predict_teacher_forcing(self, x: torch.Tensor, dec_in: torch.Tensor, tgt_pad_mask: torch.Tensor) -> torch.Tensor:
-        causal_mask = self.model.transformer.generate_square_subsequent_mask(self.horizon_seq_len, dtype=torch.bool).to(x.device)
-        predictions = self.model(
-            src=x,
-            tgt=dec_in,
-            tgt_mask=causal_mask,
-            tgt_pad_mask=tgt_pad_mask 
-        )
-        return predictions
+    # --------------------------------------
+    # Prediction functions
+    # --------------------------------------
 
-    
-    def _predict_autoregressively(self, x: torch.Tensor, dec_in: torch.Tensor, tgt_pad_mask: torch.Tensor) -> torch.Tensor:
-        # 1. Encode once
-        memory = self.model.encode(x) # Shape: [Batch, Max_Input_Len, d_model]
-
-        # 2. Initialize: Start with the first token of dec_in
-        current_input = dec_in[:, 0:1, :] # Shape: [Batch, 1, Input_Dim]
-        all_predictions = []
-
-        # 3. Autoregressive loop
-        for i in range(self.horizon_seq_len):
-            # Generate mask for the current sequence length i+1
-            current_seq_len = current_input.size(1)
-            tgt_mask = self.model.transformer.generate_square_subsequent_mask(
-                current_seq_len, dtype=torch.bool, device=x.device
-            )
-
-            output = self.model.decode(current_input, memory, tgt_mask=tgt_mask)
-            next_step_pred = output[:, -1:, :]
-            current_input = torch.cat([current_input, next_step_pred], dim=1)
-
-            all_predictions.append(next_step_pred)
-
-
-        predictions = torch.cat(all_predictions, dim=1)
-        return predictions
-
-    def _reconstruct_absolute_positions(self, x: torch.Tensor, y: torch.Tensor, predictions: torch.Tensor, tgt_pad_mask: torch.Tensor) -> torch.Tensor:
-        input_abs = self.denormalize_inputs(x)
-        target_deltas = self.denormalize_targets(y)
-        predictions_deltas = self.denormalize_targets(predictions)
-
-        last_position_abs = input_abs[:,-1,:3].unsqueeze(1)
-        target_abs = last_position_abs + target_deltas.cumsum(dim=1)
-        predictions_abs = last_position_abs + predictions_deltas.cumsum(dim=1)
-
-        return input_abs, target_abs, predictions_abs
-
-        
-    def _evaluate_step(
-        self, 
-        pred_abs: torch.Tensor, 
-        tgt_abs: torch.Tensor, 
-        tgt_pad_mask: torch.Tensor,
-    ):
-        """
-        Store metric accumulators for validation step.
-        
-        Reconstructs absolute positions from deltas and computes metrics.
-        
-        Args:
-            pred_abs: Model predictions (absolute positions) [batch_size, horizon_seq_len, 3]
-            tgt_abs: Target values (absolute positions) [batch_size, horizon_seq_len, 3]
-            tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
-        """
-        valid_mask = ~tgt_pad_mask # [B, H]
-        
-        # 1. Feature-wise Errors on absolute positions [B, H, F]
-        diff = pred_abs - tgt_abs
-        abs_err = diff.abs()
-        sq_err = diff ** 2
-
-        # 2. Euclidean Distances [B, H]
-        dist_2d = torch.norm(diff[:, :, :2], dim=2)  # Position distances (X, Y)
-        dist_3d = torch.norm(diff[:, :, :3], dim=2)  # Position + altitude distances
-
-        # 3. Masking
-        # Zero out invalid entries for summation
-        # Expand mask for features: [B, H] -> [B, H, 1]
-        valid_mask_unsqueezed = valid_mask.unsqueeze(-1)
-        
-        abs_err_masked = abs_err * valid_mask_unsqueezed
-        sq_err_masked = sq_err * valid_mask_unsqueezed
-        dist_2d_masked = dist_2d * valid_mask
-        dist_3d_masked = dist_3d * valid_mask
-
-        # 4. Accumulate per horizon (Sum over batch dimension)
-        self.val_sum_abs_error += abs_err_masked.sum(dim=0)
-        self.val_sum_sq_error += sq_err_masked.sum(dim=0)
-        self.val_sum_dist_2d += dist_2d_masked.sum(dim=0)
-        self.val_sum_dist_3d += dist_3d_masked.sum(dim=0)
-        self.val_count_valid_waypoints += valid_mask.sum(dim=0)
-
-        # 5. MDE (Max Displacement Error) calculation
-        traj_max_dist = dist_3d_masked.max(dim=1).values # [B]
-        has_valid_points = valid_mask.any(dim=1)         # [B]
-        self.val_sum_of_max_dist_2d += traj_max_dist[has_valid_points].sum()
-        self.val_count_traj += has_valid_points.sum()
-
-
-    def _visualize_prediction_vs_targets(self, in_abs: torch.Tensor, tgt_abs: torch.Tensor, pred_abs: torch.Tensor, tgt_pad_mask: torch.Tensor, batch_idx: int):
-        """
-        Visualize the prediction vs targets for the first num_visualized_traj trajectories in batch index 0.
-
-        Args:
-            in_abs: Input absolute positions [batch_size, horizon_seq_len, 3]
-            tgt_abs: Target absolute positions [batch_size, horizon_seq_len, 3]
-            pred_abs: Predicted absolute positions [batch_size, horizon_seq_len, 3]
-            tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
-            batch_idx: Batch index
-        """
-        if batch_idx != 0:
-            return
-
-        for i in range(self.num_visualized_traj):
-            in_abs_i = in_abs[i].detach().cpu().float().numpy()
-            tgt_abs_i = tgt_abs[i].detach().cpu().float().numpy()
-            pred_abs_i = pred_abs[i].detach().cpu().float().numpy()
-            tgt_pad_mask_i = tgt_pad_mask[i].detach().cpu().numpy()
-
-            fig, ax = plot_predictions_targets(in_abs_i, tgt_abs_i, pred_abs_i, tgt_pad_mask_i, "EDDB")
-            self.logger.experiment.log({
-                f"val-predictions-targets/batch_{batch_idx}_traj_{i}": wandb.Image(fig)
-            })
-            
-
-
-    def _compute_loss(
+    def _predict_teacher_forcing(
         self,
-        predictions: torch.Tensor,
-        targets: torch.Tensor,
-        tgt_pad_mask: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Compute masked MSE loss.
+        input_traj: torch.Tensor,
+        dec_in_traj: torch.Tensor,
+        target_pad_mask: torch.Tensor,
+        num_steps: Optional[int] = None,
+        memory: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Predict using teacher forcing.
         
         Args:
-            predictions: Model predictions [batch_size, horizon_seq_len, num_features]
-            targets: Target values [batch_size, horizon_seq_len, num_features]
-            tgt_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            input_traj: Normalized input trajectory [B, T_in, input_features]
+            dec_in_traj: Normalized decoder input (ground truth) [B, H, dec_in_features]
+            target_pad_mask: Padding mask [B, H]
+            num_steps: Number of steps to predict (default: horizon_seq_len)
+            memory: Pre-computed encoder memory (optional, will encode if None)
             
         Returns:
-            Scalar loss value
+            Tuple of (predictions [B, num_steps, 3], memory)
         """
-        active_loss = ~tgt_pad_mask 
+        num_steps = num_steps or self.horizon_seq_len
         
-        loss = self.criterion(predictions[active_loss], targets[active_loss]).mean()
-        return loss
+        if memory is None:
+            memory = self.model.encode(input_traj)
+        
+        # Slice inputs to num_steps
+        dec_in = dec_in_traj[:, :num_steps, :]
+        pad_mask = target_pad_mask[:, :num_steps] if target_pad_mask is not None else None
+        
+        causal_mask = self._generate_causal_mask(num_steps, input_traj.device)
+        pred_traj = self.model.decode(
+            dec_in,
+            memory,
+            causal_mask=causal_mask,
+            target_pad_mask=pad_mask,
+        )
+        return pred_traj, memory
+
+    
+    def _predict_autoregressively(
+        self,
+        input_traj: torch.Tensor,
+        dec_in_traj: torch.Tensor,
+        num_steps: Optional[int] = None,
+        memory: Optional[torch.Tensor] = None,
+        continued_decoding = False,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Predict autoregressively.
+        
+        Args:
+            input_traj: Normalized input trajectory [B, T_in, input_features]
+            dec_in_traj: Normalized decoder input [B, H, dec_in_features] - used for initial token or as prefix
+            num_steps: Number of steps to predict (default: horizon_seq_len)
+            memory: Pre-computed encoder memory (optional, will encode if None)
+            continued_decoding: Whether to take the full dec_in_traj as the initial decoder input (True) or only the first token (False)
+        Returns:
+            Tuple of (predictions [B, num_steps, 3], memory)
+        """
+        num_steps = num_steps or self.horizon_seq_len
+        
+        # Encode if memory not provided
+        if memory is None:
+            memory = self.model.encode(input_traj)
+
+        # Initialize decoder input either with the full dec_in_traj (for continued decoding) or only the first token
+        current_dec_in = dec_in_traj if continued_decoding else dec_in_traj[:, 0:1, :]
+
+        # Autoregressive loop
+        all_predictions = []
+        for i in range(num_steps):
+            current_seq_len = current_dec_in.size(1)
+            target_mask = self._generate_causal_mask(current_seq_len, input_traj.device)
+            
+            # Use gradient checkpointing during training to save memory
+            if self.training:
+                output = checkpoint.checkpoint(
+                    lambda dec_in, mem, mask, pad_mask: self.model.decode(
+                        dec_in, mem, causal_mask=mask, target_pad_mask=pad_mask
+                    ),
+                    current_dec_in,
+                    memory,
+                    target_mask,
+                    None,
+                    use_reentrant=False,
+                )
+            else:
+                output = self.model.decode(
+                    current_dec_in,
+                    memory,
+                    causal_mask=target_mask,
+                    target_pad_mask=None,  # No padding mask during AR to avoid sequence length leakage
+                )
+            next_step_pred = output[:, -1:, :]  # [B, 1, output_features]
+            all_predictions.append(next_step_pred)
+            
+            current_dec_in = torch.cat([current_dec_in, next_step_pred], dim=1)
+
+        pred_traj = torch.cat(all_predictions, dim=1)  # [B, num_steps, output_features]
+        return pred_traj, memory
 
 
-    def _log_error_vs_horizon(self, metric: torch.Tensor, metric_name: str, feature_name: str = None):
-        if feature_name is not None:
-            features = ["X", "Y", "Altitude"]
-            feat_idx = features.index(feature_name)
-            metric = metric[:, feat_idx].detach().cpu().tolist()
-            name = f"{metric_name} {feature_name}"
-        else:
-            # For 1D metrics like ADE2D, ADE3D -> Input metric shape: [H, 1]
-            metric = metric.squeeze(1).detach().cpu().tolist()
-            name = metric_name
-
-        table = wandb.Table(columns=[name, "Horizon"])
-        for i, val in enumerate(metric):
-            h = self.evaluation_horizons[i]
-            table.add_data(val, h)
-
-        fields = {"value": name, "label": "Horizon"}
-        custom_chart = wandb.plot_table(
-            vega_spec_name="timriedel/error_by_horizon",
-            data_table=table,
-            fields=fields,
+    def _predict_scheduled_sampling(
+        self,
+        input_traj: torch.Tensor,
+        dec_in_traj: torch.Tensor,
+        target_traj: torch.Tensor,
+        target_pad_mask: torch.Tensor,
+        batch_idx: int,
+    ) -> torch.Tensor:
+        tf_steps = self._compute_teacher_forcing_steps()
+        ar_steps = self.horizon_seq_len - tf_steps
+        
+        # Log the current scheduled sampling state (once per epoch, on first batch)
+        if batch_idx == 0:
+            self.log("train/teacher_forcing_steps", float(tf_steps), on_step=False, on_epoch=True, batch_size=len(input_traj))
+            self.log("train/autoregressive_steps", float(ar_steps), on_step=False, on_epoch=True, batch_size=len(input_traj))
+        
+        # Special case: Full teacher forcing
+        if tf_steps >= self.horizon_seq_len:
+            pred_traj, _ = self._predict_teacher_forcing(
+                input_traj, dec_in_traj, target_pad_mask
+            )
+            return pred_traj
+        
+        # Special case: Full autoregressive
+        if tf_steps <= 0:
+            pred_traj, _ = self._predict_autoregressively(
+                input_traj, dec_in_traj
+            )
+            return pred_traj
+        
+        # Mixed mode: Teacher forcing prefix + autoregressive suffix
+        # Teacher forcing phase
+        tf_pred, memory = self._predict_teacher_forcing(
+            input_traj, dec_in_traj, target_pad_mask, num_steps=tf_steps
         )
 
-        self.logger.experiment.log({
-            f"val-{metric_name.lower()}/{name}": custom_chart
-        })
-    
-
-    def configure_optimizers(self):
-        optimizer = instantiate(self.optimizer_cfg, params=self.model.parameters())
+        last_tf_pred = tf_pred[:, -1:, :]
+        ar_start_dec_in = torch.cat([dec_in_traj[:, :tf_steps, :], last_tf_pred], dim=1)
         
-        if self.scheduler_cfg is None:
-            return optimizer
-        else:
-            steps_per_epoch = len(self.trainer.datamodule.train_dataloader())
-            warmup_epochs = self.scheduler_cfg.get('warmup_epochs', 0)
-            
-            warmup_steps = steps_per_epoch * warmup_epochs
-            total_steps = steps_per_epoch * self.trainer.max_epochs
-
-            scheduler = SequentialLR(
-                optimizer,
-                schedulers=[
-                    LinearLR(optimizer, start_factor=1e-6, total_iters=warmup_steps),
-                    CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps),
-                ],
-                milestones=[warmup_steps],
-            )
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "interval": "step",
-                    "frequency": 1
-                }
-            }
+        # Autoregressive phase
+        ar_pred, _ = self._predict_autoregressively(
+            input_traj, ar_start_dec_in,
+            num_steps=ar_steps,
+            memory=memory,
+            continued_decoding=True,
+        )
+        
+        # Concatenate predictions
+        pred_traj = torch.cat([tf_pred, ar_pred], dim=1)  # [B, H, 3]
+        return pred_traj

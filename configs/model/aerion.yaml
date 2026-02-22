@@ -1,5 +1,19 @@
-# Base model configuration, used for specifying the model architecture
-# Copy this file and modify it for your model
+# Aerion model configuration
+# Context-aware transformer for trajectory prediction
 
 name: aerion
+params:
+  _target_: models.architectures.aerion.Aerion
+  batch_first: true
 
+  encoder_input_dim: 16  # 3 absolute positions + 3 deltas + 10 distance features (threshold + 4 centerline points)
+  decoder_input_dim: 14  # 1 altitude + 3 deltas + 10 distance features (threshold + 4 centerline points)
+  output_dim: 3          # predicted deltas only in ENU coordinates (dx, dy, dalt)
+  d_model: 128
+  nhead: 8
+  num_encoder_layers: 4
+  num_decoder_layers: 6
+  dim_feedforward: 512
+  dropout: 0.1
+  max_input_len: 10
+  max_output_len: 80

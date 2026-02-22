@@ -24,6 +24,10 @@ ulimit -n 8192
 
 python src/main.py --config-name=execute_aerion \
     stage=train \
-    experiment_name=aerion-train \
-    dataset=first3days \
-    contexts.flightinfo.enabled=true
+    dataset=single_day \
+    trainer.limit_train_batches=1 \
+    trainer.limit_val_batches=1 \
+
+    # execution.num_waypoints_to_predict=10 \
+    # trainer.fast_dev_run=True \
+    # execution.num_trajectories_to_predict=1 \
