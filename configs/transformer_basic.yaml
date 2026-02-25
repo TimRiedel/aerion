@@ -1,9 +1,7 @@
-# Execution configuration for the Aerion model
-# Includes all settings needed for model execution
-
 defaults:
   - base_config
-  - model: aerion
+  - model: transformer
+  - features: aerion
   - dataset: single_day
   - _self_
 
@@ -11,7 +9,7 @@ defaults:
 # Overrides
 # --------------------------------------
 
-experiment_name: "aerion-debug"
+experiment_name: "debug-transformer-basic"
 
 trainer:
   max_epochs: 40
@@ -31,8 +29,3 @@ scheduled_sampling:
 
 dataloader:
   batch_size: 3072
-
-contexts:
-  flightinfo:
-    enabled: false
-    num_runways: 4  # e.g., EDDB has 4 runways: 06L, 06R, 24L, 24R

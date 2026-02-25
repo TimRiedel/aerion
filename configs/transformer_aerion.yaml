@@ -1,9 +1,7 @@
-# Execution configuration for the Aerion model
-# Includes all settings needed for model execution
-
 defaults:
   - base_config
   - model: transformer
+  - features: aerion
   - dataset: single_day
   - _self_
 
@@ -11,7 +9,7 @@ defaults:
 # Overrides
 # --------------------------------------
 
-experiment_name: "transformer-debug"
+experiment_name: "debug-transformer-aerion"
 
 trainer:
   max_epochs: 40

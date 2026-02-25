@@ -1,15 +1,13 @@
-import torch
-import torch.nn as nn
 from typing import Optional
 
-from .base import TrajectoryBackbone, PositionalEncoding
+import torch
+import torch.nn as nn
 
+from .common import PositionalEncoding, TrajectoryBackbone
 
 
 class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
-    """
-    Autoregressive transformer model for trajectory prediction with encoder-decoder architecture.
-    """
+    """Single Agent Trajectory Transformer with autoregressive encoder-decoder architecture."""
     
     def __init__(
         self,
@@ -19,9 +17,9 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
         d_model: int = 128,
         nhead: int = 8,
         num_encoder_layers: int = 4,
-        num_decoder_layers: int = 4,
+        num_decoder_layers: int = 6,
         dim_feedforward: int = 512,
-        dropout: float = 0.0,
+        dropout: float = 0.1,
         max_input_len: int = 10,
         max_output_len: int = 80,
         batch_first: bool = True,
@@ -36,12 +34,14 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
         
+        # Input embedding
         self.input_embedding = nn.Linear(encoder_input_dim, d_model)
         self.input_pos_encoding = PositionalEncoding(d_model, max_len=max_input_len, dropout=dropout)
         
+        # Decoder input embedding
         self.dec_in_embedding = nn.Linear(decoder_input_dim, d_model)
         self.dec_in_pos_encoding = PositionalEncoding(d_model, max_len=max_output_len, dropout=dropout)
-        
+
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead,
@@ -52,7 +52,6 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
             batch_first=batch_first,
             activation='gelu',
         )
-        
         self.output_projection = nn.Linear(d_model, output_dim)
 
     def encode(self, input_traj: torch.Tensor) -> torch.Tensor:
@@ -71,8 +70,8 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
         dec_in_emb = self.dec_in_pos_encoding(dec_in_emb)
         
         output = self.transformer.decoder(
-            tgt=dec_in_emb, 
-            memory=memory, 
+            tgt=dec_in_emb,
+            memory=memory,
             tgt_mask=causal_mask,
             tgt_key_padding_mask=target_pad_mask
         )
@@ -88,4 +87,3 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
         memory = self.encode(input_traj)
         output = self.decode(dec_in_traj, memory, causal_mask=causal_mask, target_pad_mask=target_pad_mask)
         return output
-

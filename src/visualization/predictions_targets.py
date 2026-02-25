@@ -1,10 +1,9 @@
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import pyproj
 from traffic.data import airports
-from traffic.core import Flight
 
 
 def plot_predictions_targets(

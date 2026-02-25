@@ -1,6 +1,7 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from typing import Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def plot_rtd_scatter(

@@ -1,7 +1,7 @@
-import torch
 import math
+
+import torch
 from torch import nn
-from torch.nn import functional as F
 
 
 class ILSAlignmentLoss(nn.Module):
@@ -243,12 +243,10 @@ class ILSAlignmentLoss(nn.Module):
         """
         return angular_deviation_rad**2
 
-    
-
     def forward(
         self,
-        pred_abs: torch.Tensor,
-        target_abs: torch.Tensor,
+        pred_pos_abs: torch.Tensor,
+        target_pos_abs: torch.Tensor,
         target_pad_mask: torch.Tensor,
         runway: dict,
     ) -> torch.Tensor:
@@ -260,21 +258,21 @@ class ILSAlignmentLoss(nn.Module):
         then scaled by `scale_factor`.
         
         Args:
-            pred_abs: Predicted absolute positions [B, H, 3] (x, y, altitude in meters)
-            target_abs: Target absolute positions [B, H, 3] (not used, kept for API consistency)
+            pred_pos_abs: Predicted absolute positions [B, H, 3] (x, y, altitude in meters)
+            target_pos_abs: Target absolute positions [B, H, 3] (not used, kept for API consistency)
             target_pad_mask: Padding mask [B, H] (True for padded positions, False for valid positions)
-            runway: Dictionary containing:
-                - "bearing": tensor [B, 2] with [sin(bearing), cos(bearing)] for runway direction
-                - "xyz": tensor [B, 3] with threshold position [x, y, altitude] in meters
-                - "length": tensor [B] with runway length in meters
+            runway: RunwayData object containing:
+                - bearing: tensor [B, 2] with [sin(bearing), cos(bearing)] for runway direction
+                - xyz: tensor [B, 3] with threshold position [x, y, altitude] in meters
+                - length: tensor [B] with runway length in meters
             
         Returns:
             Scalar loss value (averaged across batch and waypoints, scaled by scale_factor)
         """
-        runway_bearing = runway["bearing"]  # [B, 2]
-        threshold_xyz = runway["xyz"]  # [B, 3]
-        runway_length_m = runway["length"]  # [B]
-        batch_size = pred_abs.size(0)
+        runway_bearing = runway.bearing  # [B, 2]
+        threshold_xyz = runway.xyz  # [B, 3]
+        runway_length_m = runway.length  # [B]
+        batch_size = pred_pos_abs.size(0)
         losses = []
         
         # Find valid trajectory lengths (excluding padding)
@@ -285,7 +283,7 @@ class ILSAlignmentLoss(nn.Module):
             end_idx = valid_lengths[b].item()
             start_idx = max(0, end_idx - self.num_final_waypoints)
             
-            final_positions_xyz = pred_abs[b, start_idx:end_idx, :]  # [N, 3]
+            final_positions_xyz = pred_pos_abs[b, start_idx:end_idx, :]  # [N, 3]
             final_positions_xy = final_positions_xyz[:, :2]  # [N, 2]
             
             rwy_bearing = runway_bearing[b]  # [2] (sin, cos)

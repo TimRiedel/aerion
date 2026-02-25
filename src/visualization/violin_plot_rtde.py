@@ -1,8 +1,9 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 from typing import List, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 
 def plot_rtde_violins(
     target_rtd: np.ndarray,

@@ -22,8 +22,6 @@ ulimit -n 8192
 # Set trainer.devices="auto" (default) to use all available GPUs, or specify
 # a number like trainer.devices=4 to use 4 GPUs, or trainer.devices=1 for single GPU.
 
-python src/main.py --config-name=execute_aerion \
+python src/main.py --config-name=transformer_aerion \
     stage=train \
-    experiment_name=aerion-train \
-    dataset=first3days \
-    contexts.flightinfo.enabled=true
+    dataset=first3days
