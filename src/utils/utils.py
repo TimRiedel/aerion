@@ -36,6 +36,7 @@ def log_hydra_config_to_wandb(cfg: DictConfig, trainer: Trainer) -> None:
 def add_wandb_tags(cfg: DictConfig) -> None:
     cfg["wandb"]["tags"].append(cfg["model"]["name"])
     cfg["wandb"]["tags"].append(cfg["dataset"]["name"])
+    cfg["wandb"]["tags"].append(cfg["features"]["name"])
     return cfg
 
 def calculate_seq_len(time_minutes: int, resampling_rate_seconds: int) -> int:

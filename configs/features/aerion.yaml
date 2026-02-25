@@ -1,3 +1,4 @@
+name: aerion
 params:
   centerline_distances: [4, 8, 16, 32]
 
