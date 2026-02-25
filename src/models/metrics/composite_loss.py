@@ -69,10 +69,10 @@ class CompositeApproachLoss(nn.Module):
 
     def forward(
         self,
-        pred_abs: torch.Tensor,
-        target_abs: torch.Tensor,
-        pred_norm: torch.Tensor,
-        target_norm: torch.Tensor,
+        pred_pos_abs: torch.Tensor,
+        target_pos_abs: torch.Tensor,
+        pred_pos_norm: torch.Tensor,
+        target_pos_norm: torch.Tensor,
         pred_deltas_abs: torch.Tensor,
         target_pad_mask: torch.Tensor,
         pred_rtd: torch.Tensor,
@@ -81,18 +81,18 @@ class CompositeApproachLoss(nn.Module):
     ) -> tuple[torch.Tensor, dict]:
         """
         Compute composite loss: ADE (2D norm), FDE (3D norm), RTD, Altitude (MSE norm), Alignment, TurnRate.
-        
+
         Args:
-            pred_abs: Predicted absolute positions [B, H, 3] (in meters)
-            target_abs: Target absolute positions [B, H, 3] (in meters)
-            pred_norm: Predicted normalized positions [B, H, 3]
-            target_norm: Target normalized positions [B, H, 3]
+            pred_pos_abs: Predicted absolute positions [B, H, 3] (in meters)
+            target_pos_abs: Target absolute positions [B, H, 3] (in meters)
+            pred_pos_norm: Predicted normalized positions [B, H, 3]
+            target_pos_norm: Target normalized positions [B, H, 3]
+            pred_deltas_abs: Predicted deltas in meters [B, H, 3]
             target_pad_mask: Padding mask [B, H] (True for padded positions)
             pred_rtd: Predicted remaining track distance [B]
             target_rtd: Target remaining track distance [B]
-            runway: Dictionary containing "xyz" coordinates and "bearing" in sin, cos format.
-            pred_deltas_abs: Predicted deltas in meters [B, H, 3]
-        
+            runway: RunwayData or dict-like with "xyz" and "bearing" (sin, cos)
+
         Returns:
             total: Scalar total loss
             loss_info: Dictionary containing loss weights and sigmas
@@ -100,15 +100,15 @@ class CompositeApproachLoss(nn.Module):
         losses = []
         for name in self.enabled_losses:
             if name == "ade":
-                losses.append(self.ade_loss(pred_norm, target_norm, target_pad_mask))
+                losses.append(self.ade_loss(pred_pos_norm, target_pos_norm, target_pad_mask))
             if name == "fde":
-                losses.append(self.fde_loss(pred_norm, target_norm, target_pad_mask))
+                losses.append(self.fde_loss(pred_pos_norm, target_pos_norm, target_pad_mask))
             if name == "rtd":
                 losses.append(self.rtd_loss(pred_rtd, target_rtd))
             if name == "altitude":
-                losses.append(self.altitude_loss(pred_norm, target_norm, target_pad_mask))
+                losses.append(self.altitude_loss(pred_pos_norm, target_pos_norm, target_pad_mask))
             if name == "alignment":
-                losses.append(self.alignment_loss(pred_abs, target_abs, target_pad_mask, runway))
+                losses.append(self.alignment_loss(pred_pos_abs, target_pos_abs, target_pad_mask, runway))
             if name == "turn_rate":
                 losses.append(self.turn_rate_loss(pred_deltas_abs, target_pad_mask))
 

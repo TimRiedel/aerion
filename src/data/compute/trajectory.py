@@ -4,7 +4,7 @@ def reconstruct_positions_from_deltas(
     input_pos: torch.Tensor,
     deltas: torch.Tensor,
     target_pad_mask: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     """
     Reconstruct positions from deltas. Works with normalized or absolute input positions or deltas.
 
@@ -12,9 +12,9 @@ def reconstruct_positions_from_deltas(
         input_pos: Normalized or absolute input positions [B, T, 3]
         deltas: Normalized or absolute deltas [B, T, 3]
         target_pad_mask: Padding mask [B, T]
-        
+
     Returns:
-        positions: Reconstructed positions [B, T, 3]
+        Reconstructed positions [B, T, 3]
     """
     active_mask = ~target_pad_mask
     active_mask_expanded = active_mask.unsqueeze(-1)
@@ -31,24 +31,23 @@ def compute_rtd(
     target_pad_mask: torch.Tensor,
     runway_xyz: torch.Tensor,
     runway_bearing: torch.Tensor,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Compute Remaining Track Distance (RTD) for batched or unbatched trajectories.
-    
-    RTD is the cumulative 2D distance between consecutive valid waypoints. If
-    add_distance_to_threshold is True, the result is adjusted for the last valid point
-    relative to the runway threshold:
+
+    RTD is the cumulative 2D distance between consecutive valid waypoints, adjusted
+    for the last valid point relative to the runway threshold:
     - If the last point is on the approach side (before the threshold), the along-track
       distance to the threshold is added.
     - If the last point has overshot the threshold (landing side), the along-track
       distance past the threshold is subtracted.
-    
+
     Args:
         target_pos_abs: Trajectory positions [H, 3] or [B, H, 3] (x, y, altitude) - absolute positions
         target_pad_mask: Padding mask [H] or [B, H] (True for padded/invalid positions)
         runway_xyz: Runway threshold position [3] or [B, 3] (x, y, altitude)
         runway_bearing: Runway bearing [2] or [B, 2] (sin(θ), cos(θ))
-        
+
     Returns:
         traj_distance: Cumulative trajectory distance [B]
         rtd: Remaining track distance, including distance to threshold [B]

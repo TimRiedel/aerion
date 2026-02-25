@@ -89,9 +89,10 @@ class FeatureSliceNormalizer:
 
 class Normalizer(nn.Module):
     """
-    Same as FeatureSliceNormalizer, but as a nn.Module for usage in on-demand normalization in models.
-    User must ensure that x tensor has the same or a compatible shape as the mean and std tensors.
-    Does not modify the sample dictionary, but returns the normalized tensor.
+    Standard z-score normalization: (x - mean) / std.
+
+    Used as an nn.Module for on-demand normalization in models.
+    Ensures mean/std are registered as buffers.
     """
     def __init__(self, mean: torch.Tensor, std: torch.Tensor, eps: float = 1e-6):
         super().__init__()

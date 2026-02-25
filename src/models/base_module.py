@@ -253,9 +253,9 @@ class BaseModule(pl.LightningModule):
 
     def _plot_prediction_vs_target(
         self,
-        input_abs: torch.Tensor,
-        target_abs: torch.Tensor,
-        pred_abs: torch.Tensor,
+        input_pos_abs: torch.Tensor,
+        target_pos_abs: torch.Tensor,
+        pred_pos_abs: torch.Tensor,
         target_pad_mask: torch.Tensor,
         batch_idx: int,
         flight_id: str = None,
@@ -268,24 +268,24 @@ class BaseModule(pl.LightningModule):
         Visualize the prediction vs targets for trajectories in batch index 0.
 
         Args:
-            input_abs: Input absolute positions [batch_size, input_seq_len, 3]
-            target_abs: Target absolute positions [batch_size, horizon_seq_len, 3]
-            pred_abs: Predicted absolute positions [batch_size, horizon_seq_len, 3]
+            input_pos_abs: Input absolute positions [batch_size, input_seq_len, 3]
+            target_pos_abs: Target absolute positions [batch_size, horizon_seq_len, 3]
+            pred_pos_abs: Predicted absolute positions [batch_size, horizon_seq_len, 3]
             target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
             batch_idx: Batch index
             flight_id: Flight ID [batch_size]
             target_rtd: Target RTD in meters [batch_size]
-            pred_rtd: Target RTD in meters [batch_size]
+            pred_rtd: Predicted RTD in meters [batch_size]
             prefix: Prefix for visualization names (e.g., "train", "val")
             num_trajectories: Number of trajectories to visualize (default: 6)
         """
         if batch_idx != 0:
             return
 
-        for i in range(min(num_trajectories, input_abs.shape[0])):
-            input_abs_i = input_abs[i].detach().cpu().float().numpy()
-            target_abs_i = target_abs[i].detach().cpu().float().numpy()
-            pred_abs_i = pred_abs[i].detach().cpu().float().numpy()
+        for i in range(min(num_trajectories, input_pos_abs.shape[0])):
+            input_abs_i = input_pos_abs[i].detach().cpu().float().numpy()
+            target_abs_i = target_pos_abs[i].detach().cpu().float().numpy()
+            pred_abs_i = pred_pos_abs[i].detach().cpu().float().numpy()
             target_pad_mask_i = target_pad_mask[i].detach().cpu().numpy()
             target_rtd_i = target_rtd[i].detach().cpu().float().numpy()
             pred_rtd_i = pred_rtd[i].detach().cpu().float().numpy()

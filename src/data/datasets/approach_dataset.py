@@ -102,7 +102,7 @@ class ApproachDataset(Dataset):
 
         return sample
 
-    def _compute_inputs_outputs(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _compute_inputs_outputs(self, idx: int) -> tuple[TrajectoryData, TrajectoryData, torch.Tensor]:
         if idx < 0 or idx >= len(self):
             raise IndexError(f"Index {idx} out of range for dataset of size {len(self)}")
 
@@ -126,7 +126,7 @@ class ApproachDataset(Dataset):
         xyz_deltas = TrajectoryData(encoder_in=input_traj_deltas, target=target_traj_deltas, dec_in=dec_in_deltas)
         return xyz_positions, xyz_deltas, target_padding_mask
 
-    def _compute_input_traj(self, input_df: pd.DataFrame) -> tuple[torch.Tensor, torch.Tensor]:
+    def _compute_input_traj(self, input_df: pd.DataFrame) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         input_traj_pos = torch.from_numpy(input_df.astype("float32").values) # [T_in, 3]
         input_traj_deltas_computed = torch.diff(input_traj_pos, dim=0)        # [T_in-1, 3]
         input_traj_deltas = torch.cat([input_traj_deltas_computed[0:1], input_traj_deltas_computed], dim=0)  # [T_in, 3] -> backfilled first delta

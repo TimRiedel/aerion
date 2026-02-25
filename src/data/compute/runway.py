@@ -12,12 +12,12 @@ def compute_dx_dy_bearing(
     reference_xy: torch.Tensor,
 ) -> torch.Tensor:
     """
-    Compute displacement features from positions to threshold.
-    
+    Compute displacement (dx, dy) from positions to a reference point.
+
     Args:
         positions_xy: Position coordinates [*, 2] (x, y)
         reference_xy: Reference coordinates [2] or broadcastable shape (e.g. runway threshold)
-        
+
     Returns:
         Displacement features (dx, dy) as [*, 2]
     """
@@ -73,14 +73,14 @@ def compute_extended_centerline_point(
 ) -> torch.Tensor:
     """
     Compute a point on the extended centerline backward from the threshold.
-    
+
     This extends the centerline in the approach direction (opposite to runway bearing).
-    
+
     Args:
-        threshold_xyz: Threshold coordinates [3] (x, y, altitude)
-        bearing: Runway bearing [*, 2] (sin, cos)
-        distance: Distance to extend backward from threshold (in NM) [float]
-        
+        threshold_xy: Threshold coordinates [2] or [3] (x, y); altitude ignored if present
+        bearing: Runway bearing [*, 2] (sin θ, cos θ)
+        distance_nm: Distance to extend backward from threshold in nautical miles
+
     Returns:
         Point on extended centerline [*, 2] (x, y)
     """
@@ -109,16 +109,16 @@ def get_distances_to_centerline(
 def convert_pos_to_rwy_coordinates(traj_pos_xy: torch.Tensor, runway_xy: torch.Tensor, runway_bearing: torch.Tensor) -> torch.Tensor:
     """
     Transform airport-aligned coordinates (ENU) to runway-relative coordinates.
-    
+
     The transformation consists of:
     1. Translation: subtract runway position to move origin to runway
     2. Rotation: rotate so that positive x-axis aligns with runway direction
-    
+
     Args:
         traj_pos_xy: Trajectory positions [H, 2] or [B, H, 2] (x, y)
         runway_xy: Runway position [2] or [B, 2] (x, y)
-        runway_bearing: Runway bearing [2] or [B, 2] (sin(θ), cos(θ)) in radians
-        
+        runway_bearing: Runway bearing [2] or [B, 2] as (sin θ, cos θ)
+
     Returns:
         Transformed positions in runway-relative frame [H, 2] or [B, H, 2]
     """

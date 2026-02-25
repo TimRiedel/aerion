@@ -72,10 +72,10 @@ class AccumulatedTrajectoryMetrics:
     ):
         """
         Accumulate metrics for a batch of predictions.
-        
+
         Args:
-            pred_abs: Model predictions (absolute positions) [batch_size, horizon_seq_len, 3]
-            target_abs: Target values (absolute positions) [batch_size, horizon_seq_len, 3]
+            pred_pos_abs: Model predictions (absolute positions) [batch_size, horizon_seq_len, 3]
+            target_pos_abs: Target values (absolute positions) [batch_size, horizon_seq_len, 3]
             target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
             pred_rtd: Predicted RTD for the full trajectory [batch_size]
             target_rtd: Actual RTD for the full trajectory [batch_size]
