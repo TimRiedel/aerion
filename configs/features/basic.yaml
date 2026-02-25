@@ -1,0 +1,9 @@
+params: {}
+
+encoder_inputs:
+  - xy_position
+  - altitude
+  - delta_xyz
+
+decoder_inputs:
+  - delta_xyz

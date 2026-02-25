@@ -1,18 +1,19 @@
 import io
-from PIL import Image
-import wandb
-import torch
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 import pytorch_lightning as pl
+import torch
+import wandb
 from hydra.utils import instantiate
 from omegaconf import DictConfig
-from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+from PIL import Image
 from torch import nn
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
+from data.features import FeatureSchema
 from models.metrics import AccumulatedTrajectoryMetrics, CompositeApproachLoss
-from data.utils.trajectory import reconstruct_absolute_from_deltas
-from visualization import *
+from visualization import plot_predictions_targets, plot_rtd_scatter, plot_rtde_violins
 
 
 class BaseModule(pl.LightningModule):
@@ -23,6 +24,7 @@ class BaseModule(pl.LightningModule):
         loss_cfg: DictConfig,
         input_seq_len: int,
         horizon_seq_len: int,
+        feature_schema: FeatureSchema,
         scheduler_cfg: DictConfig = None,
         scheduled_sampling_cfg: DictConfig = None,
         num_visualized_traj: int = 10,
@@ -34,6 +36,7 @@ class BaseModule(pl.LightningModule):
         self.scheduler_cfg = scheduler_cfg
         self.input_seq_len = input_seq_len
         self.horizon_seq_len = horizon_seq_len
+        self.feature_schema = feature_schema
         self.num_visualized_traj = num_visualized_traj
 
         self.loss = CompositeApproachLoss(loss_configs=loss_cfg)
@@ -46,6 +49,9 @@ class BaseModule(pl.LightningModule):
         # Initialize metric accumulators (will be properly initialized in epoch start hooks)
         self.val_metrics = None
         self.train_metrics = None
+
+    def on_fit_start(self):
+        self.feature_schema.register_modules(self)
 
     # --------------------------------------
     # Optimizer and Scheduler
@@ -136,43 +142,6 @@ class BaseModule(pl.LightningModule):
         self._log_metrics(metrics, "val")
         self.val_metrics.reset()
 
-    # --------------------------------------
-    # Reconstruction of absolute positions
-    # --------------------------------------
-
-    def _reconstruct_absolute_positions(
-        self,
-        input_traj: torch.Tensor,
-        target_traj: torch.Tensor,
-        pred_traj: torch.Tensor,
-        target_pad_mask: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Reconstruct absolute positions from normalized trajectories.
-        
-        This is a convenience method that uses the utility function for trajectory reconstruction.
-        
-        Args:
-            input_traj: Normalized input trajectory [batch_size, input_seq_len, 8]
-            target_traj: Normalized target deltas [batch_size, horizon_seq_len, 3]
-            pred_traj: Normalized prediction deltas [batch_size, horizon_seq_len, 3]
-            target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
-            
-        Returns:
-            input_abs: Denormalized input absolute positions [batch_size, input_seq_len, 8]
-            target_abs: Reconstructed target absolute positions [batch_size, horizon_seq_len, 3]
-            pred_abs: Reconstructed prediction absolute positions [batch_size, horizon_seq_len, 3]
-        """
-        return reconstruct_absolute_from_deltas(
-            input_traj=input_traj,
-            target_deltas=target_traj,
-            pred_deltas=pred_traj,
-            denormalize_inputs=self.denormalize_inputs,
-            denormalize_target_deltas=self.denormalize_target_deltas,
-            target_pad_mask=target_pad_mask,
-        )
-
- 
     # --------------------------------------
     # Logging and Visualization
     # --------------------------------------

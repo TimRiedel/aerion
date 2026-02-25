@@ -1,0 +1,15 @@
+params:
+  centerline_distances: [4, 8, 16, 32]
+
+encoder_inputs:
+  - xy_position
+  - altitude
+  - delta_xyz
+  - distance_to_threshold_xy
+  - distances_to_centerline_xy
+
+decoder_inputs:
+  - altitude
+  - delta_xyz
+  - distance_to_threshold_xy
+  - distances_to_centerline_xy

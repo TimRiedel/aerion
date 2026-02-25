@@ -1,4 +1,5 @@
-from typing import Any, Dict, Union, List
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
 
@@ -9,19 +10,21 @@ class FeatureSliceNormalizer:
     
     This allows composing multiple normalizers to operate on different feature subsets,
     making it easy to extend features without modifying normalization logic.
+
+    Used for data normalization in the dataset.
     """
     
     def __init__(
         self, 
-        name: str,
-        indices: Union[List[int], range, slice],
+        path: Tuple[str, ...],
+        indices: Union[List[int], range],
         mean: torch.Tensor, 
         std: torch.Tensor, 
         eps: float = 1e-6
     ):
         """
         Args:
-            name: Name of tensor in sample dictionary
+            path: Path to the tensor in the sample (e.g. ("trajectory", "encoder_in"))
             indices: Feature indices to normalize. Can be:
                 - List of integers: [0, 1, 2]
                 - Tuple of integers: [min, max)
@@ -29,7 +32,7 @@ class FeatureSliceNormalizer:
             std: Std for normalization (shape should match number of indices)
             eps: Small value to avoid division by zero
         """
-        self.name = name
+        self.path = path
         self.mean = mean
         self.std = std
         self.eps = eps
@@ -39,12 +42,48 @@ class FeatureSliceNormalizer:
         else:
             self.indices = list(indices)
             
-    
-    def __call__(self, sample: Dict[str, Any]) -> Dict[str, Any]:
-        x = sample[self.name]
+    def _get_value_at_path(self, obj: Any, path: Tuple[str, ...]) -> Any:
+        """Get value at path. Supports both dict (key) and object (attr) access."""
+        for key in path:
+            try:
+                obj = getattr(obj, key)
+            except AttributeError:
+                obj = obj[key]
+        return obj
+
+    def _set_value_at_path(
+        self, obj: Any, value: Any, path: Optional[Tuple[str, ...]] = None
+    ) -> None:
+        """Set value at path in place. Supports both dict and dataclass samples."""
+        if path is None:
+            path = self.path
+        if not path:
+            return
+        if len(path) == 1:
+            key = path[0]
+            try:
+                setattr(obj, key, value)
+            except (AttributeError, TypeError):
+                obj[key] = value
+            return
+        # Navigate to parent of target
+        parent = obj
+        for key in path[:-1]:
+            try:
+                parent = getattr(parent, key)
+            except AttributeError:
+                parent = parent[key]
+        key = path[-1]
+        try:
+            setattr(parent, key, value)
+        except (AttributeError, TypeError):
+            parent[key] = value
+
+    def __call__(self, sample: Any) -> Any:
+        x = self._get_value_at_path(sample, self.path)
         x_norm = x.clone()
         x_norm[..., self.indices] = (x[..., self.indices] - self.mean) / (self.std + self.eps)
-        sample[self.name] = x_norm
+        self._set_value_at_path(sample, x_norm, self.path)
         return sample
 
 

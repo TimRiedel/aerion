@@ -1,2 +1,1 @@
-from .normalize import FeatureSliceNormalizer, Denormalizer, Normalizer
-from .noise import DecoderInputNoise
+from .normalize import Denormalizer, FeatureSliceNormalizer, Normalizer

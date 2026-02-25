@@ -1,12 +1,12 @@
 import logging
 import os
 import hydra
-from omegaconf import DictConfig, OmegaConf
 import torch
+from omegaconf import DictConfig, OmegaConf
 
+from data import ApproachData, FeatureSchema
+from models import SingleAgentModule
 from trainer import Trainer
-from data import *
-from models import *
 
 
 # Enable Tensor Core optimization for better performance on CUDA devices with Tensor Cores
@@ -22,48 +22,36 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     num_trajectories_to_predict = cfg.get("execution", {}).get("num_trajectories_to_predict", None)
     num_visualized_traj = cfg.get("execution", {}).get("num_visualized_traj", 10)
 
-    model_cfg = OmegaConf.to_container(cfg["model"], resolve=True) # Convert to regular dict to allow modifications
+    # Convert OmegaConf to regular dict to allow modifications
+    model_cfg = OmegaConf.to_container(cfg["model"], resolve=True)
     optimizer_cfg = OmegaConf.to_container(cfg["optimizer"], resolve=True)
     loss_cfg = OmegaConf.to_container(cfg["loss"], resolve=True)
 
-    if cfg["model"]["name"] == "aerion":
-        data = AerionData(
-            cfg["dataset"],
-            cfg["data_processing"],
-            cfg["dataloader"],
-            cfg.seed,
-            num_trajectories_to_predict=num_trajectories_to_predict,
-            num_waypoints_to_predict=horizon_seq_len,
-        )
-        model = AerionModule(
-            model_cfg,
-            optimizer_cfg,
-            loss_cfg,
-            input_seq_len,
-            horizon_seq_len,
-            scheduler_cfg=cfg.get("scheduler", None),
-            scheduled_sampling_cfg=cfg.get("scheduled_sampling", None),
-            num_visualized_traj=num_visualized_traj,
-        )
-    else:
-        data = ApproachData(
-            cfg["dataset"],
-            cfg["data_processing"],
-            cfg["dataloader"],
-            cfg.seed,
-            num_trajectories_to_predict=num_trajectories_to_predict,
-            num_waypoints_to_predict=horizon_seq_len,
-        )
-        model = TransformerModule(
-            model_cfg,
-            optimizer_cfg,
-            loss_cfg,
-            input_seq_len,
-            horizon_seq_len,
-            scheduler_cfg=cfg.get("scheduler", None),
-            scheduled_sampling_cfg=cfg.get("scheduled_sampling", None),
-            num_visualized_traj=num_visualized_traj,
-        )
+    feature_schema = FeatureSchema(cfg["features"])
+    model_cfg["params"]["encoder_input_dim"] = feature_schema.encoder_dim
+    model_cfg["params"]["decoder_input_dim"] = feature_schema.decoder_dim
+    model_cfg["params"]["output_dim"] = feature_schema.output_dim
+
+    data = ApproachData(
+        cfg["dataset"],
+        cfg["data_processing"],
+        cfg["dataloader"],
+        cfg["seed"],
+        feature_schema=feature_schema,
+        num_trajectories_to_predict=num_trajectories_to_predict,
+        num_waypoints_to_predict=horizon_seq_len,
+    )
+    model = SingleAgentModule(
+        model_cfg,
+        optimizer_cfg,
+        loss_cfg,
+        input_seq_len,
+        horizon_seq_len,
+        feature_schema=feature_schema,
+        scheduler_cfg=cfg.get("scheduler", None),
+        scheduled_sampling_cfg=cfg.get("scheduled_sampling", None),
+        num_visualized_traj=num_visualized_traj,
+    )
     
     log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
     trainer.fit(model, data)

@@ -1,15 +1,14 @@
 import re
-import torch
-import pandas as pd
+from typing import Any, Callable, List, Optional, Tuple
+
 import numpy as np
-
+import pandas as pd
+import torch
 from torch.utils.data import Dataset
-from typing import Dict, Any, Optional, Callable, List, Tuple
-from traffic.data import airports
 
-from data.utils import construct_runway_features
-from data.utils.trajectory import compute_rtd
-
+from data.compute import compute_rtd, construct_runway_features
+from data.features import FeatureSchema
+from data.interface import RunwayData, Sample, TrajectoryData
 
 class ApproachDataset(Dataset):
     def __init__(
@@ -20,9 +19,10 @@ class ApproachDataset(Dataset):
         input_time_minutes: int,
         horizon_time_minutes: int,
         resampling_rate_seconds: int,
+        feature_schema: FeatureSchema,
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
-        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        transform: Optional[Callable[[Sample], Sample]] = None,
     ):
         self.inputs_path = inputs_path
         self.horizons_path = horizons_path
@@ -30,6 +30,7 @@ class ApproachDataset(Dataset):
         self.input_time_minutes = input_time_minutes
         self.horizon_time_minutes = horizon_time_minutes
         self.resampling_rate_seconds = resampling_rate_seconds
+        self.feature_schema = feature_schema
         self.transform = transform
 
         # Set horizon sequence length
@@ -61,43 +62,41 @@ class ApproachDataset(Dataset):
         unique_airport_runways = self.flightinfo_df[["airport", "runway"]].dropna().drop_duplicates().values.tolist()
         self.runway_features = construct_runway_features(unique_airport_runways)
     
-    def _validate_feature_cols(self, columns: List[str]) -> None:
-        missing_in_inputs = set(columns) - set(self.inputs_df.columns)
-        missing_in_horizons = set(columns) - set(self.horizons_df.columns)
-        
-        if missing_in_inputs:
-            raise ValueError(
-                f"Feature columns {missing_in_inputs} not found in inputs dataframe. "
-                f"Available columns: {list(self.inputs_df.columns)}"
-            )
-        if missing_in_horizons:
-            raise ValueError(
-                f"Feature columns {missing_in_horizons} not found in horizons dataframe. "
-                f"Available columns: {list(self.horizons_df.columns)}"
-            )
 
     def __len__(self) -> int:
         return self.size
 
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
+    def __getitem__(self, idx: int) -> Sample:
         flight_id = self.flight_ids[idx]
-        input_traj_pos, input_traj_deltas, target_traj_pos, target_traj_deltas, dec_in_pos, dec_in_deltas, mask_traj = self._compute_inputs_outputs(idx)
-        input_traj = torch.cat([input_traj_pos, input_traj_deltas], dim=1)  # [T_in, 6]
-
         runway_data = self._get_runway_data(flight_id)
-        # Because target trajectories end at the runway threshold, the RTD is the same as the trajectory distance.
-        traj_distance, _ = compute_rtd(target_traj_pos, mask_traj, runway_data["xyz"], runway_data["bearing"])
+        xyz_positions, xyz_deltas, target_padding_mask = self._compute_inputs_outputs(idx)
+        last_input_pos_abs = xyz_positions.encoder_in[-1, :3]
 
-        sample = {
-            "input_traj": input_traj,            # [T_in, 6] positions + deltas
-            "target_traj": target_traj_deltas,   # [H, 3] target deltas
-            "target_rtd": traj_distance,         # scalar
-            "dec_in_traj": dec_in_deltas,        # [H, 3] decoder input deltas
-            "mask_traj": mask_traj,              # [H] mask for padded positions
-            "runway": runway_data,               # Needed for alignment loss
-            "flight_id": flight_id
-        }
-        
+        input_traj = self.feature_schema.build_encoder_input(
+            xyz_positions.encoder_in, xyz_deltas.encoder_in, runway_data
+        )
+        dec_in_traj = self.feature_schema.build_decoder_input(
+            xyz_positions.dec_in, xyz_deltas.dec_in, runway_data
+        )
+        target_traj = self.feature_schema.build_target(
+            xyz_positions.target, xyz_deltas.target, runway_data
+        )
+        trajectory = TrajectoryData(encoder_in=input_traj, dec_in=dec_in_traj, target=target_traj)
+
+        # Because target trajectories end at the runway threshold, the RTD is the same as the trajectory distance and we can ignore the second return value.
+        target_rtd, _ = compute_rtd(xyz_positions.target, target_padding_mask, runway_data.xyz, runway_data.bearing)
+
+        sample = Sample(
+            xyz_positions=xyz_positions,
+            xyz_deltas=xyz_deltas,
+            trajectory=trajectory,
+            target_padding_mask=target_padding_mask,
+            target_rtd=target_rtd,
+            last_input_pos_abs=last_input_pos_abs,
+            runway=runway_data,
+            flight_id=flight_id,
+        )
+
         if self.transform is not None:
             sample = self.transform(sample)
 
@@ -115,17 +114,17 @@ class ApproachDataset(Dataset):
         if horizon_len == 0:
             raise ValueError(f"No horizon data found for flight {flight_id}")
         input_traj_pos, input_traj_deltas, last_position, last_delta = self._compute_input_traj(input_df)
-        input_traj = torch.cat([input_traj_pos, input_traj_deltas], dim=1)  # [T_in, 6]
-        
         target_traj_pos, target_traj_deltas = self._compute_target_traj(horizon_df, last_position)
         dec_in_deltas = self._compute_dec_in_deltas(target_traj_deltas, last_delta)
         dec_in_pos = torch.cat([last_position.unsqueeze(0), target_traj_pos[:-1]], dim=0)
 
-        target_traj_pos, target_traj_deltas, dec_in_pos, dec_in_deltas, mask_traj = self._pad_horizons(
+        target_traj_pos, target_traj_deltas, dec_in_pos, dec_in_deltas, target_padding_mask = self._pad_horizons(
             target_traj_pos, target_traj_deltas, dec_in_pos, dec_in_deltas, horizon_len
         )
 
-        return input_traj_pos, input_traj_deltas, target_traj_pos, target_traj_deltas, dec_in_pos, dec_in_deltas, mask_traj
+        xyz_positions = TrajectoryData(encoder_in=input_traj_pos, target=target_traj_pos, dec_in=dec_in_pos)
+        xyz_deltas = TrajectoryData(encoder_in=input_traj_deltas, target=target_traj_deltas, dec_in=dec_in_deltas)
+        return xyz_positions, xyz_deltas, target_padding_mask
 
     def _compute_input_traj(self, input_df: pd.DataFrame) -> tuple[torch.Tensor, torch.Tensor]:
         input_traj_pos = torch.from_numpy(input_df.astype("float32").values) # [T_in, 3]
@@ -144,7 +143,7 @@ class ApproachDataset(Dataset):
     def _compute_dec_in_deltas(self, target_traj_deltas: torch.Tensor, last_observed_delta: torch.Tensor) -> torch.Tensor:
         return torch.cat([last_observed_delta.unsqueeze(0), target_traj_deltas[:-1]], dim=0)
 
-    def _get_runway_data(self, flight_id: str) -> torch.Tensor:
+    def _get_runway_data(self, flight_id: str) -> RunwayData:
         flight_id_without_sample_index = re.sub(r"_S\d+$", "", flight_id)
         flight_row = self.flightinfo_df.loc[flight_id_without_sample_index]
         airport = flight_row["airport"]
@@ -188,3 +187,18 @@ class ApproachDataset(Dataset):
             mask_traj = torch.zeros(self.horizon_seq_len, dtype=torch.bool)
 
         return target_traj_pos, target_traj_deltas, dec_in_pos, dec_in_deltas, mask_traj
+
+    def _validate_feature_cols(self, columns: List[str]) -> None:
+        missing_in_inputs = set(columns) - set(self.inputs_df.columns)
+        missing_in_horizons = set(columns) - set(self.horizons_df.columns)
+        
+        if missing_in_inputs:
+            raise ValueError(
+                f"Feature columns {missing_in_inputs} not found in inputs dataframe. "
+                f"Available columns: {list(self.inputs_df.columns)}"
+            )
+        if missing_in_horizons:
+            raise ValueError(
+                f"Feature columns {missing_in_horizons} not found in horizons dataframe. "
+                f"Available columns: {list(self.horizons_df.columns)}"
+            )

@@ -1,9 +1,11 @@
-import torch
+from typing import Dict, List, Tuple
+
 import numpy as np
-from typing import List, Tuple
+import torch
 from traffic.data import airports
 
-from .projections import get_transformer_wgs84_to_aeqd
+from data.interface import RunwayData
+from data.compute.projections import get_transformer_wgs84_to_aeqd
 
 def compute_dx_dy_bearing(
     positions_xy: torch.Tensor,
@@ -21,7 +23,7 @@ def compute_dx_dy_bearing(
     """
     return reference_xy - positions_xy
 
-def construct_runway_features(unique_airport_runways: List[Tuple[str, str]], distance_nm: List[float] = [4, 8, 16, 32]) -> torch.Tensor:
+def construct_runway_features(unique_airport_runways: List[Tuple[str, str]], distance_nm: List[float] = [4, 8, 16, 32]) -> Dict[str, RunwayData]:
     runway_features = {}
 
     for airport_runway in unique_airport_runways:
@@ -55,12 +57,12 @@ def construct_runway_features(unique_airport_runways: List[Tuple[str, str]], dis
             centerline_xy = compute_extended_centerline_point(threshold_xyz[:2], bearing, dist)
             centerline_points_xy.append(centerline_xy)
 
-        runway_features[f"{airport}-{rwy_name}"] = {
-            "xyz": threshold_xyz,
-            "bearing": bearing,
-            "length": length_m,
-            "centerline_points_xy": centerline_points_xy,
-        }
+        runway_features[f"{airport}-{rwy_name}"] = RunwayData(
+            xyz=threshold_xyz,
+            bearing=bearing,
+            length=length_m,
+            centerline_points_xy=centerline_points_xy,
+        )
 
     return runway_features
 
