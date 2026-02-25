@@ -1,9 +1,10 @@
-import torch
-import torch.nn as nn
 from typing import Optional
 
-from .common import TrajectoryBackbone, PositionalEncoding
-from .layers import CustomTransformerEncoderLayer, CustomTransformerDecoderLayer
+import torch
+import torch.nn as nn
+
+from .common import PositionalEncoding, TrajectoryBackbone
+from .layers import CustomTransformerDecoderLayer, CustomTransformerEncoderLayer
 
 
 class PytorchTrajectoryTransformer(nn.Module, TrajectoryBackbone):

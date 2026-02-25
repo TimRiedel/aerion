@@ -1,10 +1,11 @@
 import torch
 from torch import nn
+
 from .ade_loss import ADELoss
-from .fde_loss import FDELoss
 from .altitude_loss import AltitudeLoss
-from .rtd_loss import RTDLoss
+from .fde_loss import FDELoss
 from .ils_alignment_loss import ILSAlignmentLoss
+from .rtd_loss import RTDLoss
 from .turn_rate_loss import TurnRateLoss
 
 LOSS_ORDER = ["ade", "fde", "rtd", "altitude", "alignment", "turn_rate"]

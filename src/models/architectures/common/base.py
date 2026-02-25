@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
-import math
-import torch
-from torch import Tensor, nn
+
+from torch import Tensor
 
 
 class TrajectoryBackbone(ABC):

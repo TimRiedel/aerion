@@ -1,9 +1,9 @@
-import torch
 import math
-from torch import nn
+
+import torch
 
 
-class PositionalEncoding(nn.Module):
+class PositionalEncoding(torch.nn.Module):
     """Sinusoidal positional encoding for transformer inputs."""
     def __init__(self, d_model: int, max_len: int = 5000, dropout: float = 0.1):
         """
@@ -13,7 +13,7 @@ class PositionalEncoding(nn.Module):
             dropout: Dropout probability
         """
         super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
+        self.dropout = torch.nn.Dropout(p=dropout)
         
         # Create positional encoding matrix
         position = torch.arange(max_len).unsqueeze(1)  # [max_len, 1]
