@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from data import ApproachData, FeatureSchema
 from models import SingleAgentModule
-from trainer import Trainer
+from utils import *
 
 
 # Enable Tensor Core optimization for better performance on CUDA devices with Tensor Cores
@@ -53,50 +53,12 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
         num_visualized_traj=num_visualized_traj,
     )
     
-    log_important_parameters(cfg, trainer, input_seq_len, horizon_seq_len)
+    log_important_parameters(cfg, input_seq_len, horizon_seq_len)
     trainer.fit(model, data)
 
 
 def test(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
-    # TODO: When loading model from checkpoint, obtain norm_mean and norm_std from the checkpoint
-    # and pass it to the datamodule for correct normalization data loading transforms
     raise NotImplementedError("Test stage not implemented. Loading model checkpoints is not supported yet.")
-
-
-def calculate_seq_len(time_minutes: int, resampling_rate_seconds: int) -> int:
-    return time_minutes * 60 // resampling_rate_seconds
-
-def log_hydra_config_to_wandb(cfg: DictConfig, trainer: Trainer) -> None:
-    trainer.logger.experiment.config.update(
-        OmegaConf.to_container(cfg, resolve=True),
-        allow_val_change=True
-    )
-
-def log_important_parameters(cfg: DictConfig, trainer: Trainer, input_seq_len: int, horizon_seq_len: int) -> None:
-    num_trajectories_to_predict = cfg.get("debug", {}).get("num_trajectories_to_predict", None)
-
-    formatted = f"""\
-    ----------------------------------------
-    Parameters for {cfg.experiment_name}:
-    ----------------------------------------
-    Model name:                 {cfg.model.name}
-    Batch size:                 {cfg.dataloader.batch_size}
-    Max Epochs:                 {cfg.trainer.max_epochs}
-    Learning rate:              {cfg.optimizer.lr}
-    Weight Decay:               {cfg.optimizer.weight_decay}
-    Dropout:                    {cfg.model.params.dropout}
-
-    Dataset:                    {cfg.dataset.name}
-    Input Length:               {input_seq_len}
-    Horizon Length:             {horizon_seq_len}
-    Num traject. to predict:    {num_trajectories_to_predict}
-    """
-    logger.info("\n%s", formatted)
-
-def add_wandb_tags(cfg: DictConfig) -> None:
-    cfg["wandb"]["tags"].append(cfg["model"]["name"])
-    cfg["wandb"]["tags"].append(cfg["dataset"]["name"])
-    return cfg
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="execute_aerion")
@@ -114,7 +76,6 @@ def main(cfg: DictConfig) -> None:
         horizon_seq_len = min(horizon_seq_len, num_waypoints_to_predict)
 
     cfg = add_wandb_tags(cfg)
-
     if cfg.stage == "train" or cfg.stage == "fit":
         train(cfg, input_seq_len, horizon_seq_len)
     elif cfg.stage == "test":
