@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import random
 
 from traffic.core import Flight, Traffic
 
@@ -45,6 +46,8 @@ class Scene:
             input_flight, horizon_flight = self._split_flight(flight)
             input_flights.append(input_flight)
             horizon_flights.append(horizon_flight)
+        input_flights = self.permute_flights(input_flights)
+        horizon_flights = self.permute_flights(horizon_flights)
         return input_flights, horizon_flights
 
     def _split_flight(self, flight: Flight) -> tuple[Flight, Flight]:
@@ -54,3 +57,12 @@ class Scene:
         input_flight = flight.first(minutes=self.input_time_minutes)
         horizon_flight = flight.skip(minutes=self.input_time_minutes).first(minutes=self.horizon_time_minutes)
         return input_flight, horizon_flight
+
+    def _permute_flights(self, flights: list[Flight]) -> list[Flight]:
+        """
+        Returns a permutation of the given flights using the input start time as the random seed.
+        Same input start time yields the same permutation.
+        Used to ensure that scenes with nearly the same input start time are ordered differently.
+        """
+        rng = random.Random(int(self.input_start_time.timestamp()))
+        return rng.sample(flights, len(flights))
