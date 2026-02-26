@@ -97,22 +97,24 @@ class FeatureSchema:
         for i in range(len(dataset)):
             sample = dataset[i]
 
-            valid_horizon = ~sample.target_padding_mask
+            valid_flat = (~sample.target_padding_mask).reshape(-1)
 
             # 2.1 Stats for positions and deltas.
-            all_pos.append(sample.xyz_positions.encoder_in)
-            all_pos.append(sample.xyz_positions.target[valid_horizon])
-            all_delta.append(sample.xyz_deltas.encoder_in)
-            all_delta.append(sample.xyz_deltas.target[valid_horizon])
+            # reshape(-1, 3) flattens the optional agent dimension so both single-agent
+            # [T, 3] and multi-agent [T, N, 3] tensors contribute a flat list of positions or deltas [3].
+            all_pos.append(sample.xyz_positions.encoder_in.reshape(-1, 3))
+            all_pos.append(sample.xyz_positions.target.reshape(-1, 3)[valid_flat])
+            all_delta.append(sample.xyz_deltas.encoder_in.reshape(-1, 3))
+            all_delta.append(sample.xyz_deltas.target.reshape(-1, 3)[valid_flat])
 
             # 2.2 Group-specific stats for groups other than xy positions, altitude and deltas.
             for group in self.encoder_groups:
                 if not isinstance(group, (XYPosition, Altitude, DeltaXYZ)):
-                    all_group_values[group.name].append(group.get_data(sample.trajectory.encoder_in))
+                    all_group_values[group.name].append(group.get_data(sample.trajectory.encoder_in).reshape(-1, group.width))
 
             for group in self.decoder_groups:
                 if not isinstance(group, (XYPosition, Altitude, DeltaXYZ)):
-                    all_group_values[group.name].append(group.get_data(sample.trajectory.dec_in)[valid_horizon])
+                    all_group_values[group.name].append(group.get_data(sample.trajectory.dec_in).reshape(-1, group.width)[valid_flat])
 
         # 3. Compute mean and std.
         pos_cat = torch.cat(all_pos, dim=0)

@@ -43,8 +43,8 @@ class FeatureGroup(ABC):
         Called by the dataset during __getitem__.
 
         Args:
-            xyz_positions: absolute trajectory positions [B, T, 3]
-            xyz_deltas: absolute trajectory deltas [B, T, 3]
+            xyz_positions: absolute trajectory positions [T, 3]
+            xyz_deltas: absolute trajectory deltas [T, 3]
             runway: RunwayData
 
         Returns:
@@ -74,12 +74,12 @@ class FeatureGroup(ABC):
     def get_data(self, trajectory: torch.Tensor) -> Tensor:
         """
         Args:
-            trajectory: Unbatched tensor [T, F]
+            trajectory: [T, F] (single-agent) or [T, N, F] (multi-agent scene).
 
         Returns:
-            Feature tensor [T, width]
+            Feature tensor [..., width] — same leading dims as input.
         """
-        return trajectory[:, self.start_idx:self.end_idx]
+        return trajectory[..., self.start_idx:self.end_idx]
 
     def create_normalizer(self, mean: Tensor, std: Tensor) -> None:
         self._normalizer = Normalizer(mean=mean, std=std)
