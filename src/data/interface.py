@@ -30,8 +30,23 @@ class RunwayData:
 
 @dataclass
 class PredictionSample:
-class Sample:
-    """Single sample: trajectory interface, target padding mask, runway data, RTD, and flight ID."""
+    """
+    Single-flight prediction or multi-agent scene prediction data.
+
+    Tensor shapes depend on the dataset:
+    - Single agent (e.g. ApproachDataset): 
+        * trajectory tensors [T, F]
+        * target_padding_mask [H]
+        * target_rtd scalar
+        * last_input_pos_abs [3]
+        * flight_id str.
+    - Multi-agent scene (e.g. TrafficDataset): 
+        * trajectory tensors [T, N, F]
+        * target_padding_mask [H, N]
+        * target_rtd [N]
+        * last_input_pos_abs [N, 3]
+        * flight_id List[str].
+    """
 
     xyz_positions: TrajectoryData
     xyz_deltas: TrajectoryData
@@ -40,4 +55,4 @@ class Sample:
     target_rtd: torch.Tensor
     last_input_pos_abs: torch.Tensor
     runway: RunwayData
-    flight_id: Union[str, List[str]]  # str for single sample, List[str] when batched
+    flight_id: Union[str, List[str]]  # str for single flight, List[str] when batched
