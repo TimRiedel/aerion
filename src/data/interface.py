@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Union
+from typing import List, Optional, Union
 
 import torch
 
@@ -45,7 +45,8 @@ class PredictionSample:
         * target_padding_mask [H, N]
         * target_rtd [N]
         * last_input_pos_abs [N, 3]
-        * flight_id List[str].
+        * flight_id List[str]
+        * agent_padding_mask [N] or [B, N_max] when batched; True = padded slot.
     """
 
     xyz_positions: TrajectoryData
@@ -56,3 +57,4 @@ class PredictionSample:
     last_input_pos_abs: torch.Tensor
     runway: RunwayData
     flight_id: Union[str, List[str]]  # str for single flight, List[str] when batched
+    agent_padding_mask: Optional[torch.Tensor] = None
