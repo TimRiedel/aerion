@@ -2,7 +2,7 @@ from typing import List
 
 import torch
 
-from data.interface import RunwayData, Sample, TrajectoryData
+from data.interface import RunwayData, PredictionSample, TrajectoryData
 
 
 def _stack_trajectory_data(items: List[TrajectoryData]) -> TrajectoryData:
@@ -29,8 +29,8 @@ def _stack_runway_data(items: List[RunwayData]) -> RunwayData:
     )
 
 
-def collate_samples(samples: List[Sample]) -> Sample:
-    """Collate a list of Sample dataclasses into a single batched Sample.
+def collate_samples(samples: List[PredictionSample]) -> PredictionSample:
+    """Collate a list of PredictionSample dataclasses into a single batched PredictionSample.
 
     Stacks all tensor fields along a new batch dimension. flight_id becomes
     a list of strings.
@@ -38,7 +38,7 @@ def collate_samples(samples: List[Sample]) -> Sample:
     if not samples:
         raise ValueError("Cannot collate empty list of samples")
 
-    return Sample(
+    return PredictionSample(
         xyz_positions=_stack_trajectory_data([s.xyz_positions for s in samples]),
         xyz_deltas=_stack_trajectory_data([s.xyz_deltas for s in samples]),
         trajectory=_stack_trajectory_data([s.trajectory for s in samples]),

@@ -4,14 +4,14 @@ import torch
 import torch.utils.checkpoint as checkpoint
 
 from data.compute.trajectory import compute_rtd, reconstruct_positions_from_deltas
-from data.interface import RunwayData, Sample
+from data.interface import RunwayData, PredictionSample
 from models.base_module import BaseModule
 from models.metrics import AccumulatedTrajectoryMetrics
 
 
 class SingleAgentModule(BaseModule):
     def common_step(self, 
-        batch: Sample,
+        batch: PredictionSample,
         batch_idx: int,
         metrics: AccumulatedTrajectoryMetrics,
         prefix: str,

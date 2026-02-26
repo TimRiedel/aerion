@@ -61,18 +61,6 @@ class ApproachData(pl.LightningDataModule):
 
         if stage == "test":
             raise NotImplementedError("Test dataset and normalization are not implemented yet")
-            # self.test_ds = ApproachDataset(
-            #     inputs_path=self.dataset_cfg.test_inputs_path,
-            #     horizons_path=self.dataset_cfg.test_horizons_path,
-            #     flightinfo_path=self.dataset_cfg.flightinfo_path,
-            #     input_time_minutes=self.dataset_cfg.input_time_minutes,
-            #     horizon_time_minutes=self.dataset_cfg.horizon_time_minutes,
-            #     resampling_rate_seconds=self.dataset_cfg.resampling_rate_seconds,
-            #     feature_schema=self.feature_schema,
-            #     num_trajectories_to_predict=self.num_trajectories_to_predict,
-            #     num_waypoints_to_predict=self.num_waypoints_to_predict,
-            # )
-            # self.test_ds.transform = T.Compose(self._get_transforms())
 
     def train_dataloader(self):
         return instantiate(

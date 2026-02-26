@@ -3,7 +3,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from data.features import FeatureSchema
-from data.interface import Sample
+from data.interface import PredictionSample
 from data.datasets.base_dataset import BaseDataset
 
 
@@ -19,7 +19,7 @@ class ApproachDataset(BaseDataset):
         feature_schema: FeatureSchema,
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
-        transform: Optional[Callable[[Sample], Sample]] = None,
+        transform: Optional[Callable[[PredictionSample], PredictionSample]] = None,
     ):
         super().__init__(
             flightinfo_path=flightinfo_path,
@@ -47,13 +47,13 @@ class ApproachDataset(BaseDataset):
         self.size = len(self.flight_ids)
 
 
-    def __getitem__(self, idx: int) -> Sample:
+    def __getitem__(self, idx: int) -> PredictionSample:
         flight_id = self.flight_ids[idx]
         input_df = self.grouped_inputs_df.get_group(flight_id)
         horizon_df = self.grouped_horizons_df.get_group(flight_id)
-        sample = self.get_trajectory_data(input_df, horizon_df, flight_id)
+        prediction_sample = self.get_flight_data(input_df, horizon_df, flight_id)
 
         if self.transform is not None:
-            sample = self.transform(sample)
+            prediction_sample = self.transform(prediction_sample)
 
-        return sample
+        return prediction_sample

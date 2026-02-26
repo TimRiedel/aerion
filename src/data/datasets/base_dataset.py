@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 
 from data.compute import compute_rtd, construct_runway_features
 from data.features import FeatureSchema
-from data.interface import RunwayData, Sample, TrajectoryData
+from data.interface import RunwayData, PredictionSample, TrajectoryData
 
 class BaseDataset(Dataset):
     def __init__(
@@ -19,7 +19,7 @@ class BaseDataset(Dataset):
         feature_schema: FeatureSchema,
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
-        transform: Optional[Callable[[Sample], Sample]] = None,
+        transform: Optional[Callable[[PredictionSample], PredictionSample]] = None,
     ):
         self.flightinfo_path = flightinfo_path
         self.input_time_minutes = input_time_minutes
@@ -48,7 +48,7 @@ class BaseDataset(Dataset):
     def __len__(self) -> int:
         return self.size
 
-    def get_trajectory_data(self, input_df: pd.DataFrame, horizon_df: pd.DataFrame, flight_id: Optional[str] = None) -> Sample:
+    def get_flight_data(self, input_df: pd.DataFrame, horizon_df: pd.DataFrame, flight_id: Optional[str] = None) -> PredictionSample:
         """
         Compute trajectory-related data from input and horizon DataFrames.
 
@@ -61,7 +61,7 @@ class BaseDataset(Dataset):
             flight_id: Flight ID used for runway lookup in flightinfo. If None, it is inferred from the input_df.
 
         Returns:
-            Sample with xyz_positions, xyz_deltas, trajectory, target_padding_mask,
+            PredictionSample with xyz_positions, xyz_deltas, trajectory, target_padding_mask,
             target_rtd, last_input_pos_abs, runway, and flight_id.
         """
         if flight_id is None:
@@ -86,7 +86,7 @@ class BaseDataset(Dataset):
         # Because target trajectories end at the runway threshold, the RTD is the same as the trajectory distance and we can ignore the second return value.
         target_rtd, _ = compute_rtd(xyz_positions.target, target_padding_mask, runway_data.xyz, runway_data.bearing)
 
-        return Sample(
+        return PredictionSample(
             xyz_positions=xyz_positions,
             xyz_deltas=xyz_deltas,
             trajectory=trajectory,
@@ -96,7 +96,6 @@ class BaseDataset(Dataset):
             runway=runway_data,
             flight_id=flight_id,
         )
-
 
     def _compute_inputs_outputs(
         self, input_df: pd.DataFrame, horizon_df: pd.DataFrame

@@ -6,7 +6,12 @@ import torch
 
 @dataclass
 class TrajectoryData:
-    """Trajectory tensors: encoder input, decoder input, and target."""
+    """Trajectory tensors: encoder input, decoder input, and target.
+
+    Tensor shapes depend on dataset:
+    - Single agent (e.g. ApproachDataset): [T, F]
+    - Multi-agent scene (e.g. TrafficDataset): [T, N, F]
+    """
 
     encoder_in: torch.Tensor
     dec_in: torch.Tensor
@@ -24,6 +29,7 @@ class RunwayData:
 
 
 @dataclass
+class PredictionSample:
 class Sample:
     """Single sample: trajectory interface, target padding mask, runway data, RTD, and flight ID."""
 
