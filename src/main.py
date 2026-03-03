@@ -21,7 +21,6 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
 
     num_trajectories_to_predict = cfg.get("execution", {}).get("num_trajectories_to_predict", None)
     num_visualized_traj = cfg.get("execution", {}).get("num_visualized_traj", 10)
-    max_num_agents = cfg.get("max_num_agents", 25)
 
     # Convert OmegaConf to regular dict to allow modifications
     model_cfg = OmegaConf.to_container(cfg["model"], resolve=True)
@@ -33,20 +32,17 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     model_cfg["params"]["decoder_input_dim"] = feature_schema.decoder_dim
     model_cfg["params"]["output_dim"] = feature_schema.output_dim
 
+    max_num_agents = None
     if cfg.get("multi_agent_prediction", False):
+        max_num_agents = calculate_max_num_agents(cfg["dataset"]["scenes_path"])
         model_cfg["params"]["max_num_agents"] = max_num_agents
-
-        scene_creation_cfg = OmegaConf.to_container(cfg["scene-creation"], resolve=True)
-        scene_creation_cfg["params"]["input_time_minutes"] = cfg["dataset"]["input_time_minutes"]
-        scene_creation_cfg["params"]["horizon_time_minutes"] = cfg["dataset"]["horizon_time_minutes"]
-        scene_creation_strategy = instantiate(scene_creation_cfg["params"])
 
         data = TrafficData(
             cfg["dataset"],
             cfg["data_processing"],
             cfg["dataloader"],
-            scene_creation_strategy,
-            cfg["seed"],
+            scenes_path=cfg["dataset"]["scenes_path"],
+            seed=cfg["seed"],
             feature_schema=feature_schema,
             max_num_agents=max_num_agents,
         )
@@ -81,7 +77,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             num_visualized_traj=num_visualized_traj,
         )
     
-    log_important_parameters(cfg, input_seq_len, horizon_seq_len)
+    log_important_parameters(cfg, input_seq_len, horizon_seq_len, max_num_agents)
     trainer.fit(model, data)
 
 

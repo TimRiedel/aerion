@@ -12,7 +12,6 @@ from torchvision import transforms as T
 from data.collate import collate_samples
 from data.datasets.traffic_dataset import TrafficDataset
 from data.features.feature_schema import FeatureSchema
-from data.scenes import SceneCreationStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ class TrafficData(pl.LightningDataModule):
         dataset_cfg: DictConfig,
         processing_cfg: DictConfig,
         dataloader_cfg: DictConfig,
-        scene_creation_strategy: SceneCreationStrategy,
+        scenes_path: str,
         seed: int,
         feature_schema: FeatureSchema,
         max_num_agents: int,
@@ -34,7 +33,7 @@ class TrafficData(pl.LightningDataModule):
         self.dataset_cfg = dataset_cfg
         self.dataloader_cfg = dataloader_cfg
         self.data_processing_cfg = processing_cfg
-        self.scene_creation_strategy = scene_creation_strategy
+        self.scenes_path = scenes_path
         self.num_trajectories_to_predict = num_trajectories_to_predict
         self.num_waypoints_to_predict = num_waypoints_to_predict
         self.seed = seed
@@ -52,12 +51,12 @@ class TrafficData(pl.LightningDataModule):
             resampled_path = self.dataset_cfg.get("train_resampled_path", self.dataset_cfg.resampled_path)
             full_train_ds = TrafficDataset(
                 resampled_path=resampled_path,
+                scenes_path=self.scenes_path,
                 flightinfo_path=self.dataset_cfg.flightinfo_path,
                 input_time_minutes=self.dataset_cfg.input_time_minutes,
                 horizon_time_minutes=self.dataset_cfg.horizon_time_minutes,
                 resampling_rate_seconds=self.dataset_cfg.resampling_rate_seconds,
                 feature_schema=self.feature_schema,
-                scene_creation_strategy=self.scene_creation_strategy,
                 num_trajectories_to_predict=self.num_trajectories_to_predict,
                 num_waypoints_to_predict=self.num_waypoints_to_predict,
             )

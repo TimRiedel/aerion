@@ -3,7 +3,6 @@ defaults:
   - model: agentformer
   - features: aerion
   - dataset: single_day
-  - scene-creation: flight_appears
   - _self_
 
 # --------------------------------------
@@ -12,7 +11,6 @@ defaults:
 
 experiment_name: "debug-agentformer-aerion"
 multi_agent_prediction: true
-max_num_agents: 25
 
 trainer:
   max_epochs: 40

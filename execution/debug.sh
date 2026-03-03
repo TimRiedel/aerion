@@ -25,7 +25,7 @@ ulimit -n 8192
 python src/main.py --config-name=agentformer_aerion \
     stage=train \
     dataset=single_day \
-    dataloader.batch_size=5 \
+    dataloader.batch_size=20 \
     trainer.limit_train_batches=1 \
     trainer.limit_val_batches=1 \
 

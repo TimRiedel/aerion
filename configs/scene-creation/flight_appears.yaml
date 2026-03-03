@@ -1,3 +1,0 @@
-name: flight_appears
-params:
-  _target_: data.scenes.scene_strategies.FlightAppearsSceneCreationStrategy
