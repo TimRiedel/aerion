@@ -1,0 +1,5 @@
+name: sampling
+params:
+  _target_: data.scenes.scene_strategies.SamplingSceneCreationStrategy
+  min_horizon_time_minutes: 8
+  data_period_minutes: 3

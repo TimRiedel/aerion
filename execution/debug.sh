@@ -22,9 +22,10 @@ ulimit -n 8192
 # Set trainer.devices="auto" (default) to use all available GPUs, or specify
 # a number like trainer.devices=4 to use 4 GPUs, or trainer.devices=1 for single GPU.
 
-python src/main.py --config-name=transformer_aerion \
+python src/main.py --config-name=agentformer_aerion \
     stage=train \
     dataset=single_day \
+    dataloader.batch_size=5 \
     trainer.limit_train_batches=1 \
     trainer.limit_val_batches=1 \
 

@@ -46,8 +46,8 @@ class Scene:
             input_flight, horizon_flight = self._split_flight(flight)
             input_flights.append(input_flight)
             horizon_flights.append(horizon_flight)
-        input_flights = self.permute_flights(input_flights)
-        horizon_flights = self.permute_flights(horizon_flights)
+        input_flights = self._permute_flights(input_flights)
+        horizon_flights = self._permute_flights(horizon_flights)
         return input_flights, horizon_flights
 
     def _split_flight(self, flight: Flight) -> tuple[Flight, Flight]:

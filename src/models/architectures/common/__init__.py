@@ -1,4 +1,4 @@
 from .base import TrajectoryBackbone
-from .positional_encoding import PositionalEncoding
+from .positional_encoding import PositionalAgentEncoding, PositionalEncoding
 
-__all__ = ["TrajectoryBackbone", "PositionalEncoding"]
+__all__ = ["PositionalAgentEncoding", "PositionalEncoding", "TrajectoryBackbone"]

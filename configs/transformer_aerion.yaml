@@ -22,10 +22,5 @@ optimizer:
 scheduler:
   warmup_epochs: 5
 
-scheduled_sampling:
-  enabled: true
-  teacher_forcing_epochs: 1
-  transition_epochs: 15
-
 dataloader:
   batch_size: 3072

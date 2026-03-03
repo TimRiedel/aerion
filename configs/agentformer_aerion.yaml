@@ -1,15 +1,18 @@
 defaults:
   - base_config
-  - model: transformer
+  - model: agentformer
   - features: aerion
   - dataset: single_day
+  - scene-creation: flight_appears
   - _self_
 
 # --------------------------------------
 # Overrides
 # --------------------------------------
 
-experiment_name: "debug-transformer-basic"
+experiment_name: "debug-agentformer-aerion"
+multi_agent_prediction: true
+max_num_agents: 25
 
 trainer:
   max_epochs: 40
@@ -23,4 +26,4 @@ scheduler:
   warmup_epochs: 5
 
 dataloader:
-  batch_size: 3072
+  batch_size: 60

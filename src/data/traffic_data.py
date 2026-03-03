@@ -26,7 +26,7 @@ class TrafficData(pl.LightningDataModule):
         scene_creation_strategy: SceneCreationStrategy,
         seed: int,
         feature_schema: FeatureSchema,
-        max_n_agents: int = 15,
+        max_num_agents: int,
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
     ):
@@ -35,11 +35,11 @@ class TrafficData(pl.LightningDataModule):
         self.dataloader_cfg = dataloader_cfg
         self.data_processing_cfg = processing_cfg
         self.scene_creation_strategy = scene_creation_strategy
-        self.max_n_agents = max_n_agents
         self.num_trajectories_to_predict = num_trajectories_to_predict
         self.num_waypoints_to_predict = num_waypoints_to_predict
         self.seed = seed
         self.feature_schema = feature_schema
+        self.max_num_agents = max_num_agents
 
         train_resampled = dataset_cfg.get("train_resampled_path", dataset_cfg.get("resampled_path"))
         test_resampled = dataset_cfg.get("test_resampled_path", train_resampled)
@@ -76,7 +76,7 @@ class TrafficData(pl.LightningDataModule):
         return instantiate(
             self.dataloader_cfg,
             dataset=self.train_ds,
-            collate_fn=partial(collate_samples, max_n_agents=self.max_n_agents),
+            collate_fn=partial(collate_samples, max_agents=self.max_num_agents),
         )
 
     def val_dataloader(self):
@@ -84,7 +84,7 @@ class TrafficData(pl.LightningDataModule):
             self.dataloader_cfg,
             dataset=self.val_ds,
             shuffle=False,
-            collate_fn=partial(collate_samples, max_n_agents=self.max_n_agents),
+            collate_fn=partial(collate_samples, max_agents=self.max_num_agents),
         )
 
     def test_dataloader(self):
@@ -92,7 +92,7 @@ class TrafficData(pl.LightningDataModule):
             self.dataloader_cfg,
             dataset=self.test_ds,
             shuffle=False,
-            collate_fn=partial(collate_samples, max_n_agents=self.max_n_agents),
+            collate_fn=partial(collate_samples, max_agents=self.max_num_agents),
         )
 
     def _split_dataset(self, dataset: TrafficDataset, val_pct: float):

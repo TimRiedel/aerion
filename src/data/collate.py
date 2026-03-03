@@ -1,26 +1,22 @@
-from typing import List, Optional
+from typing import List
 
 import torch
 
 from data.interface import RunwayData, PredictionSample, TrajectoryData
 
 
-def pad_trajectory_data_agents(td: TrajectoryData, n_agents: int, max_n_agents: int) -> TrajectoryData:
-    """Pad TrajectoryData agent dimension from n_agents to max_n_agents with zeros."""
-    if n_agents >= max_n_agents:
-        return td
-    pad_size = max_n_agents - n_agents
+def pad_trajectory_data_agents(td: TrajectoryData, n_agents: int, max_agents: int) -> TrajectoryData:
+    """Pad TrajectoryData agent dimension from n_agents to max_agents with zeros."""
+    pad_size = max_agents - n_agents
     return TrajectoryData(
         encoder_in=torch.nn.functional.pad(td.encoder_in, (0, 0, 0, pad_size), value=0.0),
         dec_in=torch.nn.functional.pad(td.dec_in, (0, 0, 0, pad_size), value=0.0),
         target=torch.nn.functional.pad(td.target, (0, 0, 0, pad_size), value=0.0),
     )
 
-def pad_runway_data_agents(rw: RunwayData, n_agents: int, max_n_agents: int) -> RunwayData:
-    """Pad RunwayData agent dimension from n_agents to max_n_agents with zeros."""
-    if n_agents >= max_n_agents:
-        return rw
-    pad_size = max_n_agents - n_agents
+def pad_runway_data_agents(rw: RunwayData, n_agents: int, max_agents: int) -> RunwayData:
+    """Pad RunwayData agent dimension from n_agents to max_agents with zeros."""
+    pad_size = max_agents - n_agents
     return RunwayData(
         xyz=torch.nn.functional.pad(rw.xyz, (0, 0, 0, pad_size), value=0.0),
         bearing=torch.nn.functional.pad(rw.bearing, (0, 0, 0, pad_size), value=0.0),
@@ -31,36 +27,40 @@ def pad_runway_data_agents(rw: RunwayData, n_agents: int, max_n_agents: int) -> 
         ],
     )
 
-def pad_sample_to_max_agents(
-    sample: PredictionSample, max_n_agents: int
+def pad_sample_to_n_agents(
+    sample: PredictionSample, max_agents: int
 ) -> tuple[PredictionSample, torch.Tensor]:
     """
-    Pad a multi-agent PredictionSample to max_n_agents. Returns (padded_sample, agent_padding_mask).
-    agent_padding_mask: [N_max], True = padded slot.
+    Pad a multi-agent PredictionSample to max_agents. Returns (padded_sample, agent_padding_mask).
+    agent_padding_mask: [max_agents], True = padded slot.
     """
     n_agents = sample.trajectory.encoder_in.size(1)
-    if n_agents >= max_n_agents:
-        mask = torch.zeros(max_n_agents, dtype=torch.bool, device=sample.trajectory.encoder_in.device)
+    if n_agents > max_agents:
+        raise ValueError(
+            f"Sample has more agents ({n_agents}) than max_agents ({max_agents})."
+        )
+    if n_agents == max_agents:
+        mask = torch.zeros(max_agents, dtype=torch.bool, device=sample.trajectory.encoder_in.device)
         return sample, mask
 
-    padded_xyz = pad_trajectory_data_agents(sample.xyz_positions, n_agents, max_n_agents)
-    padded_deltas = pad_trajectory_data_agents(sample.xyz_deltas, n_agents, max_n_agents)
-    padded_traj = pad_trajectory_data_agents(sample.trajectory, n_agents, max_n_agents)
+    padded_xyz = pad_trajectory_data_agents(sample.xyz_positions, n_agents, max_agents)
+    padded_deltas = pad_trajectory_data_agents(sample.xyz_deltas, n_agents, max_agents)
+    padded_traj = pad_trajectory_data_agents(sample.trajectory, n_agents, max_agents)
 
     # target_padding_mask [H, N]: pad with True (invalid)
     target_mask = sample.target_padding_mask
-    target_mask_padded = torch.nn.functional.pad(target_mask, (0, max_n_agents - n_agents), value=True)
+    target_mask_padded = torch.nn.functional.pad(target_mask, (0, max_agents - n_agents), value=True)
 
     # target_rtd [N], last_input_pos_abs [N, 3]: pad with 0
-    target_rtd_padded = torch.nn.functional.pad(sample.target_rtd, (0, max_n_agents - n_agents), value=0.0)
-    last_pos_padded = torch.nn.functional.pad(sample.last_input_pos_abs, (0, 0, 0, max_n_agents - n_agents), value=0.0)
+    target_rtd_padded = torch.nn.functional.pad(sample.target_rtd, (0, max_agents - n_agents), value=0.0)
+    last_pos_padded = torch.nn.functional.pad(sample.last_input_pos_abs, (0, 0, 0, max_agents - n_agents), value=0.0)
 
-    padded_runway = pad_runway_data_agents(sample.runway, n_agents, max_n_agents)
+    padded_runway = pad_runway_data_agents(sample.runway, n_agents, max_agents)
 
     flight_ids = sample.flight_id if isinstance(sample.flight_id, list) else [sample.flight_id]
-    flight_ids_padded = flight_ids + [""] * (max_n_agents - n_agents)
+    flight_ids_padded = flight_ids + [""] * (max_agents - n_agents)
 
-    agent_padding_mask = torch.zeros(max_n_agents, dtype=torch.bool, device=sample.trajectory.encoder_in.device)
+    agent_padding_mask = torch.zeros(max_agents, dtype=torch.bool, device=sample.trajectory.encoder_in.device)
     agent_padding_mask[n_agents:] = True
 
     padded_sample = PredictionSample(
@@ -108,25 +108,27 @@ def is_multi_agent(sample: PredictionSample) -> bool:
 
 def collate_samples(
     samples: List[PredictionSample],
-    max_n_agents: Optional[int] = None,
+    max_agents: int | None = None,
 ) -> PredictionSample:
     """Collate a list of PredictionSample dataclasses into a single batched PredictionSample.
 
     Stacks all tensor fields along a new batch dimension. flight_id becomes
     a list of strings.
 
-    When max_n_agents is set and samples are multi-agent, pads each sample to
-    max_n_agents along the agent dimension (zero padding) and adds
+    When samples are multi-agent, pads each sample to the maximum number of
+    agents in the batch along the agent dimension (zero padding) and adds
     agent_padding_mask [B, N_max] with True for padded slots.
     """
     if not samples:
         raise ValueError("Cannot collate empty list of samples")
 
     padded_samples, agent_masks = [], None
-    if max_n_agents is not None and is_multi_agent(samples[0]):
+    if is_multi_agent(samples[0]):
+        if max_agents is None:
+            raise ValueError("max_agents must be provided when samples are multi-agent")
         agent_masks = []
         for sample in samples:
-            padded_sample, agent_mask = pad_sample_to_max_agents(sample, max_n_agents)
+            padded_sample, agent_mask = pad_sample_to_n_agents(sample, max_agents)
             padded_samples.append(padded_sample)
             agent_masks.append(agent_mask)
         samples = padded_samples

@@ -10,6 +10,9 @@ defaults:
 # General settings
 # --------------------------------------
 experiment_name: "unconfigured_experiment"
+multi_agent_prediction: false
+max_num_agents: 25
+
 stage: "train"
 seed: 42
 load_checkpoint_path: null # Only used for prediction and evaluation
@@ -84,14 +87,6 @@ loss:
   turn_rate:
     enabled: true
     dt_seconds: 30.0
-
-# --------------------------------------
-# Scheduled Sampling
-# --------------------------------------
-scheduled_sampling:
-  enabled: true
-  teacher_forcing_epochs: 1
-  transition_epochs: 15
 
 # --------------------------------------
 # Weights and Biases

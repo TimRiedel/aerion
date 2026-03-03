@@ -61,14 +61,15 @@ class FeatureGroup(ABC):
         """
         Build the next absolute decoder input token during autoregressive inference.
         Both input and output are in absolute space (not normalized).
+        Works for both single-agent and multi-agent tensors.
 
         Args:
-            current_position_abs: current absolute position [B, 3]
-            pred_delta_abs: predicted delta in absolute coordinates [B, 3]
-            runway: RunwayData
+            current_position_abs: [B, 3] or [B, N, 3].
+            pred_delta_abs: [B, 3] or [B, N, 3].
+            runway: RunwayData (fields are [B, ...] or [B, N, ...]).
 
         Returns:
-            Next decoder input token [B, width]
+            Next decoder input token [B, width] or [B, N, width].
         """
     
     def get_data(self, trajectory: torch.Tensor) -> Tensor:
@@ -105,7 +106,7 @@ class XYPosition(FeatureGroup):
         pred_delta_abs: Tensor,
         runway: RunwayData,
     ) -> Tensor:
-        return current_position_abs[:, :2]
+        return current_position_abs[..., :2]
 
 
 class Altitude(FeatureGroup):
@@ -123,7 +124,7 @@ class Altitude(FeatureGroup):
         pred_delta_abs: Tensor,
         runway: RunwayData,
     ) -> Tensor:
-        return current_position_abs[:, 2:3]
+        return current_position_abs[..., 2:3]
 
 
 class DeltaXYZ(FeatureGroup):
@@ -160,8 +161,8 @@ class DistanceToThresholdXY(FeatureGroup):
         pred_delta_abs: Tensor,
         runway: RunwayData,
     ) -> Tensor:
-        threshold_xy = runway.xyz[:, :2]  # [B, 2]
-        return get_distances_to_centerline(current_position_abs[:, :2], [threshold_xy])
+        threshold_xy = runway.xyz[..., :2]
+        return get_distances_to_centerline(current_position_abs[..., :2], [threshold_xy])
 
 
 class DistancesToCenterlineXY(FeatureGroup):
@@ -188,7 +189,7 @@ class DistancesToCenterlineXY(FeatureGroup):
         runway: RunwayData,
     ) -> Tensor:
         return get_distances_to_centerline(
-            current_position_abs[:, :2], runway.centerline_points_xy
+            current_position_abs[..., :2], runway.centerline_points_xy
         )
 
 

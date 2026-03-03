@@ -4,6 +4,7 @@ train_inputs_path: /sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-single-
 train_horizons_path: /sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-single-day/trajectories/EDDB_trajectories-horizons_2024-01-01_2024-01-01.parquet
 test_inputs_path: /sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-single-day/trajectories/EDDB_trajectories-inputs_2024-01-01_2024-01-01.parquet
 test_horizons_path: /sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-single-day/trajectories/EDDB_trajectories-horizons_2024-01-01_2024-01-01.parquet
+resampled_path: /sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-single-day/trajectories/EDDB_trajectories-resampled_2024-01-01_2024-01-01.parquet
 
 flightinfo_path: /sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-single-day/flightinfo/EDDB_flightinfo_2024-01-01_2024-01-01.parquet
 

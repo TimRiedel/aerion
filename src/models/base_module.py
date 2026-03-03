@@ -1,9 +1,11 @@
 import io
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
+import torch.utils.checkpoint as checkpoint_util
 import wandb
 from hydra.utils import instantiate
 from omegaconf import DictConfig
@@ -12,6 +14,7 @@ from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from data.features import FeatureSchema
+from data.interface import RunwayData
 from models.metrics import AccumulatedTrajectoryMetrics, CompositeApproachLoss
 from visualization import plot_predictions_targets, plot_rtd_scatter, plot_rtde_violins
 
@@ -26,7 +29,6 @@ class BaseModule(pl.LightningModule):
         horizon_seq_len: int,
         feature_schema: FeatureSchema,
         scheduler_cfg: DictConfig = None,
-        scheduled_sampling_cfg: DictConfig = None,
         num_visualized_traj: int = 10,
     ):
         super().__init__()
@@ -40,11 +42,6 @@ class BaseModule(pl.LightningModule):
         self.num_visualized_traj = num_visualized_traj
 
         self.loss = CompositeApproachLoss(loss_configs=loss_cfg)
-
-        scheduled_sampling_cfg = scheduled_sampling_cfg or {}
-        self.scheduled_sampling_enabled = scheduled_sampling_cfg.get("enabled", False)
-        self.teacher_forcing_epochs = scheduled_sampling_cfg.get("teacher_forcing_epochs", 1)
-        self.transition_epochs = scheduled_sampling_cfg.get("transition_epochs", 15)
 
         # Initialize metric accumulators (will be properly initialized in epoch start hooks)
         self.val_metrics = None
@@ -86,33 +83,6 @@ class BaseModule(pl.LightningModule):
                     "frequency": 1
                 }
             }
-
-
-    # --------------------------------------
-    # Scheduled Sampling
-    # --------------------------------------
-
-    def _compute_teacher_forcing_steps(self) -> int:
-        """Compute the number of teacher forcing steps based on current epoch."""
-        current_epoch = self.current_epoch
-        
-        # Phase 1: Full teacher forcing
-        if current_epoch < self.teacher_forcing_epochs:
-            return self.horizon_seq_len
-        
-        # Phase 2: Linear transition
-        transition_start = self.teacher_forcing_epochs
-        transition_end = self.teacher_forcing_epochs + self.transition_epochs
-        
-        if current_epoch < transition_end:
-            # Linear interpolation: horizon_seq_len -> 0
-            progress = (current_epoch - transition_start) / self.transition_epochs
-            tf_steps = int(self.horizon_seq_len * (1 - progress))
-            return tf_steps
-        
-        # Phase 3: Full autoregressive
-        return 0
-        
 
     # --------------------------------------
     # Metrics accumulation and logging
@@ -338,8 +308,98 @@ class BaseModule(pl.LightningModule):
     # Utility
     # --------------------------------------
 
-    def _generate_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
-        return nn.Transformer.generate_square_subsequent_mask(seq_len, dtype=torch.bool, device=device)
+    def _generate_causal_mask(self, seq_len: int, device: torch.device, num_agents: int = 1) -> torch.Tensor:
+        """Generate a causal mask. For multi-agent (num_agents > 1), generates a
+        block-causal mask [T*N, T*N] where all agents at the same or earlier
+        time steps are visible."""
+        if num_agents <= 1:
+            return nn.Transformer.generate_square_subsequent_mask(seq_len, dtype=torch.bool, device=device)
+        total = seq_len * num_agents
+        time_idx = torch.arange(total, device=device) // num_agents
+        return time_idx.unsqueeze(0) > time_idx.unsqueeze(1)
+
+    # --------------------------------------
+    # Autoregressive prediction
+    # --------------------------------------
+
+    def predict_autoregressively(
+        self,
+        input_traj: torch.Tensor,
+        dec_in_traj: torch.Tensor,
+        runway: RunwayData,
+        initial_position_abs: torch.Tensor,
+        num_steps: Optional[int] = None,
+        memory: Optional[torch.Tensor] = None,
+        continue_decoding: bool = False,
+        agent_padding_mask: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Predict autoregressively. Works for both single-agent and multi-agent tensors.
+
+        Args:
+            input_traj: Normalized input trajectory [B, T_in, F] or [B, T_in, N, F].
+            dec_in_traj: Normalized decoder input [B, H, F] or [B, H, N, F].
+            runway: Batched RunwayData.
+            initial_position_abs: Starting position [B, 3] or [B, N, 3].
+            num_steps: Number of steps to predict (default: horizon_seq_len).
+            memory: Pre-computed encoder memory (optional, will encode if None).
+            continue_decoding: If True, use full dec_in_traj as initial decoder input.
+            agent_padding_mask: Optional [B, N] — True = padded agent slot.
+
+        Returns:
+            Tuple of (predicted deltas [B, num_steps, F] or [B, num_steps, N, F], memory).
+        """
+        num_steps = num_steps or self.horizon_seq_len
+        has_agent_dim = input_traj.ndim == 4
+        N = input_traj.size(2) if has_agent_dim else 1
+
+        enc_padding = None
+        if agent_padding_mask is not None:
+            enc_padding = agent_padding_mask.unsqueeze(1)  # [B, 1, N]
+
+        if memory is None:
+            memory = self.model.encode(input_traj, target_padding_mask=enc_padding)
+
+        current_position_abs = initial_position_abs.clone()
+        current_dec_in = dec_in_traj if continue_decoding else dec_in_traj[:, 0:1]
+
+        all_predictions_norm = []
+        for i in range(num_steps):
+            current_seq_len = current_dec_in.size(1)
+            target_mask = self._generate_causal_mask(current_seq_len, input_traj.device, num_agents=N)
+
+            dec_padding = None # Default is no padding mask during AR to avoid sequence length leakage
+            if agent_padding_mask is not None: # only padded agents are masked, but not the sequence length
+                dec_padding = agent_padding_mask.unsqueeze(1).expand(-1, current_seq_len, -1)
+
+            if self.training:
+                output = checkpoint_util.checkpoint(
+                    lambda dec_in, mem, mask, pad_mask: self.model.decode(
+                        dec_in, mem, causal_mask=mask, target_padding_mask=pad_mask
+                    ),
+                    current_dec_in,
+                    memory,
+                    target_mask,
+                    dec_padding,
+                    use_reentrant=False,
+                )
+            else:
+                output = self.model.decode(
+                    current_dec_in,
+                    memory,
+                    causal_mask=target_mask,
+                    target_padding_mask=dec_padding,
+                )
+
+            pred_deltas_norm = output[:, -1:]
+            all_predictions_norm.append(pred_deltas_norm)
+
+            next_dec_in, current_position_abs = self.feature_schema.build_next_decoder_input(
+                pred_deltas_norm, current_position_abs, runway
+            )
+            current_dec_in = torch.cat([current_dec_in, next_dec_in], dim=1)
+
+        pred_deltas_norm = torch.cat(all_predictions_norm, dim=1)
+        return pred_deltas_norm, memory
 
     def fig_to_wandb_image(self, fig: plt.Figure) -> wandb.Image:
         buf = io.BytesIO()
