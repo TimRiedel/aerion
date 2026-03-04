@@ -141,7 +141,7 @@ class BaseModule(pl.LightningModule):
             f"{prefix}/RTDE": metrics["rtde_scalar"],
             f"{prefix}/RelativeRTDE": metrics["rtde_relative_scalar"],
             f"{prefix}/RelativeRTDE_StdDev": metrics["rtde_relative_std"],
-            f"{prefix}/Altitude_MSE": metrics["altitude_mse_scalar"],
+            f"{prefix}/Altitude_MAE": metrics["altitude_mae_scalar"],
         })
 
         self._horizon_line_plot(metrics["ade_2d_per_horizon"], "ADE2D", prefix)
@@ -252,7 +252,10 @@ class BaseModule(pl.LightningModule):
         if batch_idx != 0:
             return
 
-        for i in range(min(num_trajectories, input_pos_abs.shape[0])):
+        num_plotted_trajectories = 0
+        for i in range(input_pos_abs.shape[0]):
+            if target_rtd[i] <= 80000: # skip trajectories that are close to the runway
+                continue
             input_abs_i = input_pos_abs[i].detach().cpu().float().numpy()
             target_abs_i = target_pos_abs[i].detach().cpu().float().numpy()
             pred_abs_i = pred_pos_abs[i].detach().cpu().float().numpy()
@@ -266,6 +269,10 @@ class BaseModule(pl.LightningModule):
                 f"{prefix}-predictions-targets/batch_{batch_idx}_traj_{i}": self.fig_to_wandb_image(fig)
             })
             plt.close(fig)
+
+            if num_plotted_trajectories >= num_trajectories:
+                break
+            num_plotted_trajectories += 1
 
     def _plot_rtde_violins(
         self,

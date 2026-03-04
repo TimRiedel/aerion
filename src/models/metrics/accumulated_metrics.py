@@ -17,7 +17,7 @@ class AccumulatedTrajectoryMetrics:
     - RTDE (Remaining Track Distance Error): Difference between predicted and target RTD
     - Relative RTDE: RTDE divided by actual RTD, expressed as percentage
     - Relative RTDE std: Standard deviation of relative RTDE across trajectories
-    - MSE Altitude: Mean squared error for altitude (meters²) over all valid waypoints
+    - MAE Altitude: Mean absolute error for altitude (meters) over all valid waypoints
     """
     
     def __init__(self, horizon_seq_len: int, device: torch.device):
@@ -184,7 +184,7 @@ class AccumulatedTrajectoryMetrics:
             - rtde_scalar: Scalar average RTDE (can be positive or negative)
             - rtde_relative_scalar: Scalar average relative RTDE (positive or negative %)
             - rtde_relative_std: Standard deviation of relative RTDE across trajectories (%)
-            - altitude_mse_scalar: MSE for altitude over all valid waypoints (meters²)
+            - altitude_mae_scalar: MAE for altitude over all valid waypoints (meters)
             - traj_rtde_values: Per-trajectory RTDE values for histograms
             - traj_rtde_relative_values: Per-trajectory relative RTDE values (%)
             - traj_rtd_pred_values: Per-trajectory predicted RTD values for scatter plots
@@ -236,8 +236,8 @@ class AccumulatedTrajectoryMetrics:
         rtde_scalar = self.sum_rtde / total_trajectories
         rtde_relative_scalar = self.sum_relative_rtde / total_trajectories
 
-        # 5b. MSE for altitude (over all valid waypoints)
-        altitude_mse_scalar = self.sum_sq_error[:, 2].sum() / total_valid_points
+        # 5b. MAE for altitude (over all valid waypoints)
+        altitude_mae_scalar = self.sum_abs_error[:, 2].sum() / total_valid_points
 
         # 5c. Concatenate per-trajectory ADE/FDE values for histograms
         traj_ade_2d_values = torch.cat(self.traj_ade_2d_list)
@@ -268,7 +268,7 @@ class AccumulatedTrajectoryMetrics:
             "rtde_scalar": rtde_scalar,
             "rtde_relative_scalar": rtde_relative_scalar,
             "rtde_relative_std": rtde_relative_std,
-            "altitude_mse_scalar": altitude_mse_scalar,
+            "altitude_mae_scalar": altitude_mae_scalar,
             "ade_2d_per_horizon": ade_2d_per_horizon,
             "ade_3d_per_horizon": ade_3d_per_horizon,
             "mae_per_horizon": mae_per_horizon,
