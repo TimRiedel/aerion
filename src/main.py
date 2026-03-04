@@ -34,7 +34,12 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
 
     max_num_agents = None
     if cfg.get("multi_agent_prediction", False):
-        max_num_agents = calculate_max_num_agents(cfg["dataset"]["scenes_path"])
+        dataset_max_num_agents = cfg.get("max_num_agents", None)
+        if dataset_max_num_agents is None:
+            max_num_agents = calculate_max_num_agents(cfg["dataset"]["scenes_path"])
+        else:
+            max_num_agents = dataset_max_num_agents
+
         model_cfg["params"]["max_num_agents"] = max_num_agents
 
         data = TrafficData(

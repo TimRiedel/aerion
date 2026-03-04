@@ -11,6 +11,7 @@ defaults:
 
 experiment_name: "debug-agentformer-aerion"
 multi_agent_prediction: true
+max_num_agents: 8
 
 trainer:
   max_epochs: 40
@@ -24,4 +25,4 @@ scheduler:
   warmup_epochs: 5
 
 dataloader:
-  batch_size: 60
+  batch_size: 350

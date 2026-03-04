@@ -36,6 +36,7 @@ class TrafficDataset(BaseDataset):
         input_time_minutes: int,
         horizon_time_minutes: int,
         resampling_rate_seconds: int,
+        max_num_agents: int,
         feature_schema: FeatureSchema,
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
@@ -53,12 +54,13 @@ class TrafficDataset(BaseDataset):
         )
         self.resampled_path = resampled_path
         self.scenes_path = scenes_path
+        self.max_num_agents = max_num_agents
 
         traffic_df = pd.read_parquet(resampled_path).sort_values(["flight_id", "timestamp"]).reset_index(drop=True)
         traffic_df["timestamp"] = pd.to_datetime(traffic_df["timestamp"])
         self.flight_dict = self.build_flight_dict(traffic_df)
 
-        self.scenes = self.load_scene_index(scenes_path)
+        self.scenes = self.load_scene_index(scenes_path, max_num_agents=self.max_num_agents)
         self.size = len(self.scenes)
 
     def __getitem__(self, idx: int) -> PredictionSample:
@@ -95,7 +97,7 @@ class TrafficDataset(BaseDataset):
             for fid, flight_df in df.groupby("flight_id", sort=False)
         }
 
-    def load_scene_index(self, scenes_path: str) -> list[Scene]:
+    def load_scene_index(self, scenes_path: str, max_num_agents: int) -> list[Scene]:
         """
         Loads the scene manifest and builds a list of Scene objects.
 
@@ -112,6 +114,9 @@ class TrafficDataset(BaseDataset):
 
         scenes = []
         for scene_id, group in scenes_df.groupby("scene_id", sort=True):
+            if len(group["flight_id"]) > max_num_agents: # Skip scenes with more than max_num_agents
+                continue
+
             row = group.iloc[0]
             scenes.append(Scene(
                 scene_id=int(scene_id),

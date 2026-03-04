@@ -56,6 +56,7 @@ class TrafficData(pl.LightningDataModule):
                 input_time_minutes=self.dataset_cfg.input_time_minutes,
                 horizon_time_minutes=self.dataset_cfg.horizon_time_minutes,
                 resampling_rate_seconds=self.dataset_cfg.resampling_rate_seconds,
+                max_num_agents=self.max_num_agents,
                 feature_schema=self.feature_schema,
                 num_trajectories_to_predict=self.num_trajectories_to_predict,
                 num_waypoints_to_predict=self.num_waypoints_to_predict,
