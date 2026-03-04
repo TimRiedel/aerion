@@ -181,7 +181,7 @@ def style_axes(
     """Set axis labels, ticks, grid and legend."""
     ax.set_xlabel("Target Distance (km)")
     if is_relative_rtde:
-        ax.set_ylabel("Relative RTD Prediction Error (%)")
+        ax.set_ylabel("RTD Percentage Error (%)")
     else:
         ax.set_ylabel("RTD Prediction Error (km)")
     ax.set_xticks(positions)

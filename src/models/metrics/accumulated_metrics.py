@@ -14,9 +14,11 @@ class AccumulatedTrajectoryMetrics:
     - ADE per horizon: ADE computed at each horizon step
     - MAE per horizon: MAE computed at each horizon step
     - RMSE per horizon: RMSE computed at each horizon step
-    - RTDE (Remaining Track Distance Error): Difference between predicted and target RTD
-    - Relative RTDE: RTDE divided by actual RTD, expressed as percentage
-    - Relative RTDE std: Standard deviation of relative RTDE across trajectories
+    - RTDE (Remaining Track Distance Error): Difference between predicted and target RTD (signed)
+    - RTDAE (RTD Absolute Error): Absolute value of RTDE (unsigned)
+    - RTDPE (RTD Percentage Error): RTDE divided by actual RTD, expressed as percentage (signed)
+    - RTDAPE (RTD Absolute Percentage Error): Absolute value of RTDPE (unsigned)
+    - RTD ME / MAE / MPE / MAPE std: Standard deviation of each RTD error metric across trajectories
     - MAE Altitude: Mean absolute error for altitude (meters) over all valid waypoints
     """
     
@@ -42,9 +44,11 @@ class AccumulatedTrajectoryMetrics:
         self.sum_mde_2d = torch.tensor(0.0, device=self.device)
         self.sum_mde_3d = torch.tensor(0.0, device=self.device)
         
-        # RTDE accumulators (per-trajectory metrics)
-        self.sum_rtde = torch.tensor(0.0, device=self.device)  # Sum of RTDE across all trajectories
-        self.sum_relative_rtde = torch.tensor(0.0, device=self.device)  # Sum of relative RTDE (%)
+        # RTD / RTDE accumulators (per-trajectory metrics)
+        self.sum_rtde = torch.tensor(0.0, device=self.device)  # Sum of RTDE (signed, km)
+        self.sum_rtdae = torch.tensor(0.0, device=self.device)  # Sum of RTD absolute error (km)
+        self.sum_rtdpe = torch.tensor(0.0, device=self.device)  # Sum of RTD percentage error (signed, %)
+        self.sum_rtdape = torch.tensor(0.0, device=self.device)  # Sum of RTD absolute percentage error (%)
         
         # Count of valid waypoints and trajectories
         self.count_valid_waypoints = torch.zeros(H, device=self.device)  # Shape: [H]
@@ -56,9 +60,11 @@ class AccumulatedTrajectoryMetrics:
         self.traj_fde_2d_list = []
         self.traj_fde_3d_list = []
         
-        # Per-trajectory RTDE lists for histogram and scatter plots
-        self.traj_rtde_list = []  # RTDE per trajectory
-        self.traj_rtde_relative_list = []  # Relative RTDE per trajectory
+        # Per-trajectory RTD error lists for histogram and scatter plots
+        self.traj_rtde_list = []    # RTD error (RTDE) per trajectory (signed)
+        self.traj_rtdae_list = []   # RTD absolute error (RTDAE) per trajectory (unsigned)
+        self.traj_rtdpe_list = []   # RTD percentage error (RTDPE) per trajectory (signed, %)
+        self.traj_rtdape_list = []  # RTD absolute percentage error (RTDAPE) per trajectory (unsigned, %)
         self.traj_rtd_pred_list = []  # Predicted RTD per trajectory (for scatter plot)
         self.traj_rtd_target_list = []  # Target RTD per trajectory (for scatter plot)
     
@@ -137,16 +143,26 @@ class AccumulatedTrajectoryMetrics:
         # Positive: overestimate (predicted more distance remaining than actual)
         # Negative: underestimate (predicted less distance remaining than actual)
         traj_rtde = pred_rtd - target_rtd  # [B]
-        # Relative RTDE: RTDE / actual_rtd * 100 (percentage)
-        traj_rtde_relative = traj_rtde / target_rtd * 100.0
+        traj_rtdpe = traj_rtde / target_rtd * 100.0
+        traj_rtdae = traj_rtde.abs()
+        traj_rtdape = traj_rtdpe.abs()
         
-        # Accumulate RTDE metrics (only for trajectories with valid points)
-        self.sum_rtde += traj_rtde[has_traj_valid_points].sum()
-        self.sum_relative_rtde += traj_rtde_relative[has_traj_valid_points].sum()
+        # Accumulate RTDE / RTD metrics (only for trajectories with valid points)
+        valid_traj_rtde = traj_rtde[has_traj_valid_points]
+        valid_traj_rtdpe = traj_rtdpe[has_traj_valid_points]
+        valid_traj_rtdae = traj_rtdae[has_traj_valid_points]
+        valid_traj_rtdape = traj_rtdape[has_traj_valid_points]
+
+        self.sum_rtde += valid_traj_rtde.sum()
+        self.sum_rtdae += valid_traj_rtdae.sum()
+        self.sum_rtdpe += valid_traj_rtdpe.sum()
+        self.sum_rtdape += valid_traj_rtdape.sum()
         
-        # Store per-trajectory RTDE values for histograms and scatter plots
-        self.traj_rtde_list.append(traj_rtde[has_traj_valid_points])
-        self.traj_rtde_relative_list.append(traj_rtde_relative[has_traj_valid_points])
+        # Store per-trajectory RTD error values for histograms and scatter plots
+        self.traj_rtde_list.append(valid_traj_rtde)
+        self.traj_rtdae_list.append(valid_traj_rtdae)
+        self.traj_rtdpe_list.append(valid_traj_rtdpe)
+        self.traj_rtdape_list.append(valid_traj_rtdape)
         self.traj_rtd_pred_list.append(pred_rtd[has_traj_valid_points])
         self.traj_rtd_target_list.append(target_rtd[has_traj_valid_points])
         
@@ -167,12 +183,12 @@ class AccumulatedTrajectoryMetrics:
         
         Returns:
             Dictionary containing:
-            - ade_2d_scalar: Scalar ADE in 2D
-            - ade_3d_scalar: Scalar ADE in 3D
-            - fde_2d_scalar: Scalar FDE in 2D
-            - fde_3d_scalar: Scalar FDE in 3D
-            - mde_2d_scalar: Scalar MDE in 2D
-            - mde_3d_scalar: Scalar MDE in 3D
+            - ade_2d_mean: Mean ADE in 2D
+            - ade_3d_mean: Mean ADE in 3D
+            - fde_2d_mean: Mean FDE in 2D
+            - fde_3d_mean: Mean FDE in 3D
+            - mde_2d_mean: Mean MDE in 2D
+            - mde_3d_mean: Mean MDE in 3D
             - ade_2d_per_horizon: ADE per horizon step [horizon_seq_len]
             - ade_3d_per_horizon: ADE per horizon step [horizon_seq_len]
             - mae_per_horizon: MAE per horizon step [horizon_seq_len, 3] (X, Y, Altitude)
@@ -181,12 +197,14 @@ class AccumulatedTrajectoryMetrics:
             - traj_ade_3d_values: List of per-trajectory ADE 3D values for histograms
             - traj_fde_2d_values: List of per-trajectory FDE 2D values for histograms
             - traj_fde_3d_values: List of per-trajectory FDE 3D values for histograms
-            - rtde_scalar: Scalar average RTDE (can be positive or negative)
-            - rtde_relative_scalar: Scalar average relative RTDE (positive or negative %)
-            - rtde_relative_std: Standard deviation of relative RTDE across trajectories (%)
-            - altitude_mae_scalar: MAE for altitude over all valid waypoints (meters)
+            - rtde_mean: Mean RTDE (can be positive or negative)
+            - rtdae_mean: Mean RTD Absolute Error (unsigned)
+            - rtdpe_mean: Mean RTD Percentage Error (can be positive or negative %)
+            - rtdape_mean: Mean RTD Absolute Percentage Error (unsigned %)
+            - rtdpe_std: Standard deviation of RTD Percentage Error across trajectories (%)
+            - altitude_mae: MAE for altitude over all valid waypoints (meters)
             - traj_rtde_values: Per-trajectory RTDE values for histograms
-            - traj_rtde_relative_values: Per-trajectory relative RTDE values (%)
+            - traj_rtdpe_values: Per-trajectory RTD Percentage Error values (%)
             - traj_rtd_pred_values: Per-trajectory predicted RTD values for scatter plots
             - traj_rtd_target_values: Per-trajectory target RTD values for scatter plots
         """
@@ -215,29 +233,30 @@ class AccumulatedTrajectoryMetrics:
         # 1. ADE (Average of Euclidean Distance per valid waypoint)
         ade_2d_per_horizon = self.sum_ade_2d / valid_points_per_horizon  # Shape: [H]
         ade_3d_per_horizon = self.sum_ade_3d / valid_points_per_horizon  # Shape: [H]
-        ade_2d_scalar = self.sum_ade_2d.sum() / total_valid_points       # Scalar
-        ade_3d_scalar = self.sum_ade_3d.sum() / total_valid_points       # Scalar
+        ade_2d_mean = self.sum_ade_2d.sum() / total_valid_points       # Scalar
+        ade_3d_mean = self.sum_ade_3d.sum() / total_valid_points       # Scalar
         
         # 2. MDE (Average Max Displacement Error)
-        mde_2d_scalar = self.sum_mde_2d / total_trajectories  # Scalar
-        mde_3d_scalar = self.sum_mde_3d / total_trajectories  # Scalar
+        mde_2d_mean = self.sum_mde_2d / total_trajectories  # Scalar
+        mde_3d_mean = self.sum_mde_3d / total_trajectories  # Scalar
         
         # 3. FDE (Average Final Displacement Error)
-        fde_2d_scalar = self.sum_fde_2d / total_trajectories  # Scalar
-        fde_3d_scalar = self.sum_fde_3d / total_trajectories  # Scalar
+        fde_2d_mean = self.sum_fde_2d / total_trajectories  # Scalar
+        fde_3d_mean = self.sum_fde_3d / total_trajectories  # Scalar
         
         # 4. MAE (Mean Absolute Error) and RMSE (Root Mean Square Error) per horizon
         valid_points_per_horizon_unsqueezed = valid_points_per_horizon.unsqueeze(1)  # Shape: [H, 1]
         mae_per_horizon = self.sum_abs_error / valid_points_per_horizon_unsqueezed  # Shape: [H, F]
         rmse_per_horizon = torch.sqrt(self.sum_sq_error / valid_points_per_horizon_unsqueezed)  # Shape: [H, F]
 
-        # 5. RTDE metrics (per-trajectory)
-        # Scalar RTDE metrics (average across all trajectories)
-        rtde_scalar = self.sum_rtde / total_trajectories
-        rtde_relative_scalar = self.sum_relative_rtde / total_trajectories
+        # 5. RTD error metrics (per-trajectory) - means across all trajectories
+        rtd_me = self.sum_rtde / total_trajectories    # RTDE mean
+        rtd_mae = self.sum_rtdae / total_trajectories  # RTDAE mean
+        rtd_mpe = self.sum_rtdpe / total_trajectories  # RTDPE mean
+        rtd_mape = self.sum_rtdape / total_trajectories  # RTDAPE mean
 
         # 5b. MAE for altitude (over all valid waypoints)
-        altitude_mae_scalar = self.sum_abs_error[:, 2].sum() / total_valid_points
+        altitude_mae = self.sum_abs_error[:, 2].sum() / total_valid_points
 
         # 5c. Concatenate per-trajectory ADE/FDE values for histograms
         traj_ade_2d_values = torch.cat(self.traj_ade_2d_list)
@@ -245,30 +264,42 @@ class AccumulatedTrajectoryMetrics:
         traj_fde_2d_values = torch.cat(self.traj_fde_2d_list)
         traj_fde_3d_values = torch.cat(self.traj_fde_3d_list)
         traj_rtde_values = torch.cat(self.traj_rtde_list)
-        traj_rtde_relative_values = torch.cat(self.traj_rtde_relative_list)
+        traj_rtdae_values = torch.cat(self.traj_rtdae_list)
+        traj_rtdpe_values = torch.cat(self.traj_rtdpe_list)
+        traj_rtdape_values = torch.cat(self.traj_rtdape_list)
         traj_rtd_pred_values = torch.cat(self.traj_rtd_pred_list)
         traj_rtd_target_values = torch.cat(self.traj_rtd_target_list)
 
-        # Standard deviation of relative RTDE (sample std; 0 if < 2 trajectories)
-        n_rtde = traj_rtde_relative_values.numel()
-        rtde_relative_std = torch.tensor(0.0, device=self.device, dtype=traj_rtde_relative_values.dtype)
-        if n_rtde >= 2:
-            rtde_relative_std = traj_rtde_relative_values.std()
+        # Standard deviations of RTD error metrics (sample std; 0 if < 2 trajectories)
+        def _std_or_zero(values: torch.Tensor) -> torch.Tensor:
+            if values.numel() < 2:
+                return torch.tensor(0.0, device=self.device, dtype=values.dtype)
+            return values.std()
+
+        rtd_me_std = _std_or_zero(traj_rtde_values)
+        rtd_mae_std = _std_or_zero(traj_rtdae_values)
+        rtd_mpe_std = _std_or_zero(traj_rtdpe_values)
+        rtd_mape_std = _std_or_zero(traj_rtdape_values)
         
         if strategy is not None and hasattr(strategy, "world_size") and strategy.world_size > 1:
             raise NotImplementedError("Gathering trajectory metrics across multiple GPUs is not implemented.")
         
         return {
-            "ade_2d_scalar": ade_2d_scalar,
-            "ade_3d_scalar": ade_3d_scalar,
-            "fde_2d_scalar": fde_2d_scalar,
-            "fde_3d_scalar": fde_3d_scalar,
-            "mde_2d_scalar": mde_2d_scalar,
-            "mde_3d_scalar": mde_3d_scalar,
-            "rtde_scalar": rtde_scalar,
-            "rtde_relative_scalar": rtde_relative_scalar,
-            "rtde_relative_std": rtde_relative_std,
-            "altitude_mae_scalar": altitude_mae_scalar,
+            "ade_2d_mean": ade_2d_mean,
+            "ade_3d_mean": ade_3d_mean,
+            "fde_2d_mean": fde_2d_mean,
+            "fde_3d_mean": fde_3d_mean,
+            "mde_2d_mean": mde_2d_mean,
+            "mde_3d_mean": mde_3d_mean,
+            "rtd_me": rtd_me,
+            "rtd_mae": rtd_mae,
+            "rtd_mpe": rtd_mpe,
+            "rtd_mape": rtd_mape,
+            "rtd_me_std": rtd_me_std,
+            "rtd_mae_std": rtd_mae_std,
+            "rtd_mpe_std": rtd_mpe_std,
+            "rtd_mape_std": rtd_mape_std,
+            "altitude_mae": altitude_mae,
             "ade_2d_per_horizon": ade_2d_per_horizon,
             "ade_3d_per_horizon": ade_3d_per_horizon,
             "mae_per_horizon": mae_per_horizon,
@@ -278,7 +309,9 @@ class AccumulatedTrajectoryMetrics:
             "traj_fde_2d_values": traj_fde_2d_values,
             "traj_fde_3d_values": traj_fde_3d_values,
             "traj_rtde_values": traj_rtde_values,
-            "traj_rtde_relative_values": traj_rtde_relative_values,
+            "traj_rtdae_values": traj_rtdae_values,
+            "traj_rtdpe_values": traj_rtdpe_values,
+            "traj_rtdape_values": traj_rtdape_values,
             "traj_rtd_pred_values": traj_rtd_pred_values,
             "traj_rtd_target_values": traj_rtd_target_values,
         }
