@@ -19,8 +19,11 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     trainer = Trainer(cfg["trainer"], cfg["callbacks"], cfg["wandb"])
     log_hydra_config_to_wandb(cfg, trainer)
 
-    num_trajectories_to_predict = cfg.get("execution", {}).get("num_trajectories_to_predict", None)
-    num_visualized_traj = cfg.get("execution", {}).get("num_visualized_traj", 10)
+    execution_cfg = cfg.get("execution", {})
+    num_trajectories_to_predict = execution_cfg.get("num_trajectories_to_predict", None)
+    num_visualized_traj = execution_cfg.get("num_visualized_traj", 10)
+    multi_agent_prediction = execution_cfg.get("multi_agent_prediction", False)
+    dataset_max_num_agents = execution_cfg.get("max_num_agents", None)
 
     # Convert OmegaConf to regular dict to allow modifications
     model_cfg = OmegaConf.to_container(cfg["model"], resolve=True)
@@ -32,22 +35,19 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     model_cfg["params"]["decoder_input_dim"] = feature_schema.decoder_dim
     model_cfg["params"]["output_dim"] = feature_schema.output_dim
 
-    max_num_agents = None
-    if cfg.get("multi_agent_prediction", False):
-        dataset_max_num_agents = cfg.get("max_num_agents", None)
-        if dataset_max_num_agents is None:
-            max_num_agents = calculate_max_num_agents(cfg["dataset"]["scenes_path"])
-        else:
-            max_num_agents = dataset_max_num_agents
+    if dataset_max_num_agents is None:
+        max_num_agents = calculate_max_num_agents(cfg["dataset"]["scenes_path"])
+    else:
+        max_num_agents = dataset_max_num_agents
 
+    if multi_agent_prediction:
         model_cfg["params"]["max_num_agents"] = max_num_agents
 
         data = TrafficData(
             cfg["dataset"],
             cfg["data_processing"],
             cfg["dataloader"],
-            scenes_path=cfg["dataset"]["scenes_path"],
-            seed=cfg["seed"],
+            cfg["seed"],
             feature_schema=feature_schema,
             max_num_agents=max_num_agents,
         )
@@ -68,6 +68,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             cfg["dataloader"],
             cfg["seed"],
             feature_schema=feature_schema,
+            max_num_agents=max_num_agents,
             num_trajectories_to_predict=num_trajectories_to_predict,
             num_waypoints_to_predict=horizon_seq_len,
         )

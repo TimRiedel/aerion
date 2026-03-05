@@ -30,7 +30,7 @@ class Scene:
 class TrafficDataset(BaseDataset):
     def __init__(
         self,
-        resampled_path: str,
+        trajectories_path: str,
         scenes_path: str,
         flightinfo_path: str,
         input_time_minutes: int,
@@ -52,11 +52,11 @@ class TrafficDataset(BaseDataset):
             num_waypoints_to_predict=num_waypoints_to_predict,
             transform=transform,
         )
-        self.resampled_path = resampled_path
+        self.trajectories_path = trajectories_path
         self.scenes_path = scenes_path
         self.max_num_agents = max_num_agents
 
-        traffic_df = pd.read_parquet(resampled_path).sort_values(["flight_id", "timestamp"]).reset_index(drop=True)
+        traffic_df = pd.read_parquet(trajectories_path).sort_values(["flight_id", "timestamp"]).reset_index(drop=True)
         traffic_df["timestamp"] = pd.to_datetime(traffic_df["timestamp"])
         self.flight_dict = self.build_flight_dict(traffic_df)
 

@@ -23,6 +23,7 @@ class ApproachData(pl.LightningDataModule):
         dataloader_cfg: DictConfig,
         seed: int,
         feature_schema: FeatureSchema,
+        max_num_agents: int,
         num_trajectories_to_predict: int = None,
         num_waypoints_to_predict: int = None,
     ):
@@ -34,15 +35,14 @@ class ApproachData(pl.LightningDataModule):
         self.num_waypoints_to_predict = num_waypoints_to_predict
         self.seed = seed
         self.feature_schema = feature_schema
-
-        if self.dataset_cfg.train_inputs_path == self.dataset_cfg.test_inputs_path or self.dataset_cfg.train_horizons_path == self.dataset_cfg.test_horizons_path:
-            logger.warning("⚠️  Train and test inputs or horizons paths are the same. Make sure to test on a different dataset for correct evaluation.")
+        self.max_num_agents = max_num_agents
 
     def setup(self, stage: str):
         if stage == "fit":
             full_train_ds = ApproachDataset(
-                inputs_path=self.dataset_cfg.train_inputs_path,
-                horizons_path=self.dataset_cfg.train_horizons_path,
+                trajectories_path=self.dataset_cfg.trajectories_path,
+                scenes_path=self.dataset_cfg.scenes_path,
+                max_num_agents=self.max_num_agents,
                 flightinfo_path=self.dataset_cfg.flightinfo_path,
                 input_time_minutes=self.dataset_cfg.input_time_minutes,
                 horizon_time_minutes=self.dataset_cfg.horizon_time_minutes,

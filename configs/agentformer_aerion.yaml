@@ -10,8 +10,9 @@ defaults:
 # --------------------------------------
 
 experiment_name: "debug-agentformer-aerion"
-multi_agent_prediction: true
-max_num_agents: 8
+
+execution:
+  multi_agent_prediction: true
 
 trainer:
   max_epochs: 40

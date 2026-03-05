@@ -22,7 +22,6 @@ class TrafficData(pl.LightningDataModule):
         dataset_cfg: DictConfig,
         processing_cfg: DictConfig,
         dataloader_cfg: DictConfig,
-        scenes_path: str,
         seed: int,
         feature_schema: FeatureSchema,
         max_num_agents: int,
@@ -33,25 +32,17 @@ class TrafficData(pl.LightningDataModule):
         self.dataset_cfg = dataset_cfg
         self.dataloader_cfg = dataloader_cfg
         self.data_processing_cfg = processing_cfg
-        self.scenes_path = scenes_path
         self.num_trajectories_to_predict = num_trajectories_to_predict
         self.num_waypoints_to_predict = num_waypoints_to_predict
         self.seed = seed
         self.feature_schema = feature_schema
         self.max_num_agents = max_num_agents
 
-        train_resampled = dataset_cfg.get("train_resampled_path", dataset_cfg.get("resampled_path"))
-        test_resampled = dataset_cfg.get("test_resampled_path", train_resampled)
-        if train_resampled == test_resampled:
-            logger.warning("⚠️  Train and test resampled paths are the same. Make sure to test on a different dataset for correct evaluation.")
-
     def setup(self, stage: str):
         if stage == "fit":
-
-            resampled_path = self.dataset_cfg.get("train_resampled_path", self.dataset_cfg.resampled_path)
             full_train_ds = TrafficDataset(
-                resampled_path=resampled_path,
-                scenes_path=self.scenes_path,
+                trajectories_path=self.dataset_cfg.trajectories_path,
+                scenes_path=self.dataset_cfg.scenes_path,
                 flightinfo_path=self.dataset_cfg.flightinfo_path,
                 input_time_minutes=self.dataset_cfg.input_time_minutes,
                 horizon_time_minutes=self.dataset_cfg.horizon_time_minutes,

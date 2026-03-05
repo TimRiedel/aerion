@@ -10,7 +10,6 @@ defaults:
 # General settings
 # --------------------------------------
 experiment_name: "unconfigured_experiment"
-multi_agent_prediction: false
 
 stage: "train"
 seed: 42
@@ -19,6 +18,8 @@ execution:
   num_waypoints_to_predict: null
   num_trajectories_to_predict: null
   num_visualized_traj: 20
+  multi_agent_prediction: false
+  max_num_agents: 8
 
 # --------------------------------------
 # Callbacks
