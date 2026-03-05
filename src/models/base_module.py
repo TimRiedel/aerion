@@ -259,9 +259,9 @@ class BaseModule(pl.LightningModule):
             pred_rtd_i = pred_rtd[i].detach().cpu().float().numpy()
             flight_id_i = flight_id[i]
 
-            fig, _ = plot_predictions_targets(input_abs_i, target_abs_i, pred_abs_i, target_pad_mask_i, "EDDB", flight_id_i, target_rtd_i, pred_rtd_i) # TODO: add icao
+            fig, _ = plot_predictions_targets(input_abs_i, target_abs_i, pred_abs_i, target_pad_mask_i, "EDDB", flight_id_i, target_rtd_i, pred_rtd_i)
             self.logger.experiment.log({
-                f"{prefix}-predictions-targets/batch_{batch_idx}_traj_{i}": self.fig_to_wandb_image(fig)
+                f"{prefix}-predictions-targets/batch_{batch_idx}_traj_{num_plotted_trajectories}": self.fig_to_wandb_image(fig)
             })
             plt.close(fig)
 
