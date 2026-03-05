@@ -1,5 +1,4 @@
 import os
-import shutil
 
 import pytorch_lightning as pl
 
@@ -8,9 +7,9 @@ class MetricsParquetCallback(pl.Callback):
     """
     Saves per-trajectory metrics to parquet files after each validation epoch.
 
-    Mirrors the behaviour of ModelCheckpoint: writes one file per epoch, always
-    overwrites last_metrics.parquet, and keeps best_metrics.parquet updated
-    whenever the monitored metric improves.
+    Mirrors the behaviour of ModelCheckpoint: always overwrites
+    last_metrics.parquet, and keeps best_metrics.parquet updated whenever the
+    monitored metric improves.
 
     The parquet files are written to the same directory as the model checkpoints
     so that the best parquet and the best checkpoint always correspond.
@@ -38,14 +37,11 @@ class MetricsParquetCallback(pl.Callback):
         os.makedirs(self.dirpath, exist_ok=True)
 
         df = pl_module.val_metrics.to_dataframe()
-        epoch = trainer.current_epoch
-
-        epoch_path = os.path.join(self.dirpath, f"epoch_{epoch:04d}_metrics.parquet")
-        df.to_parquet(epoch_path, index=False)
 
         last_path = os.path.join(self.dirpath, "last_metrics.parquet")
-        shutil.copy2(epoch_path, last_path)
+        df.to_parquet(last_path, index=False)
 
+        # Optionally update the best metrics based on the monitored score
         current_score = trainer.callback_metrics.get(self.monitor)
         if current_score is not None:
             score = float(current_score)
@@ -57,4 +53,4 @@ class MetricsParquetCallback(pl.Callback):
             if is_best:
                 self.best_score = score
                 best_path = os.path.join(self.dirpath, "best_metrics.parquet")
-                shutil.copy2(epoch_path, best_path)
+                df.to_parquet(best_path, index=False)
