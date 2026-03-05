@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Callable, Optional
 
 import pandas as pd
@@ -62,6 +63,10 @@ class ApproachDataset(BaseDataset):
         if num_trajectories_to_predict is not None:
             self.samples_df = self.samples_df.head(num_trajectories_to_predict)
         self.size = len(self.samples_df)
+
+    def get_day_for_index(self, index: int) -> date:
+        input_start_time = self.samples_df.iloc[index]["input_start_time"]
+        return input_start_time.date()
 
     def __getitem__(self, idx: int) -> PredictionSample:
         row = self.samples_df.iloc[idx]

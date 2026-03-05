@@ -1,6 +1,7 @@
 import random
-from typing import Callable, List, Optional
 from dataclasses import dataclass
+from datetime import date
+from typing import Callable, List, Optional
 
 import pandas as pd
 import torch
@@ -8,7 +9,7 @@ import torch
 from data.features import FeatureSchema
 from data.interface import PredictionSample, TrajectoryData
 from data.datasets import BaseDataset
-from data.collate import stack_runway_data
+from data.utils.collate import stack_runway_data
 
 
 @dataclass
@@ -62,6 +63,10 @@ class TrafficDataset(BaseDataset):
 
         self.scenes = self.load_scene_index(scenes_path, max_num_agents=self.max_num_agents)
         self.size = len(self.scenes)
+
+    def get_day_for_index(self, index: int) -> date:
+        scene = self.scenes[index]
+        return scene.input_start_time.date()
 
     def __getitem__(self, idx: int) -> PredictionSample:
         scene = self.scenes[idx]

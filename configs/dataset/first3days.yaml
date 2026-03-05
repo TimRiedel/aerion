@@ -9,4 +9,5 @@ input_time_minutes: 5
 horizon_time_minutes: 40
 resampling_rate_seconds: 30
 
-
+k_folds: 3
+cross_val_fold_idx: 0

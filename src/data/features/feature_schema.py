@@ -14,7 +14,7 @@ from data.features.feature_group import (
     XYPosition,
 )
 from data.interface import RunwayData
-from data.transforms.normalize import Denormalizer, FeatureSliceNormalizer, Normalizer
+from data.utils import Denormalizer, FeatureSliceNormalizer, Normalizer
 
 
 class FeatureSchema:

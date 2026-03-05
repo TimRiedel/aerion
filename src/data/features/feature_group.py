@@ -6,7 +6,7 @@ from torch import Tensor
 
 from data.compute.runway import get_distances_to_centerline
 from data.interface import RunwayData
-from data.transforms.normalize import Normalizer
+from data.utils import Normalizer
 
 
 class FeatureGroup(ABC):

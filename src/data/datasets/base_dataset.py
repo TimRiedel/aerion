@@ -1,4 +1,5 @@
 import re
+from datetime import date
 from typing import Callable, Optional
 
 import pandas as pd
@@ -47,6 +48,7 @@ class BaseDataset(Dataset):
 
     def __len__(self) -> int:
         return self.size
+
 
     def get_flight_data(self, input_df: pd.DataFrame, horizon_df: pd.DataFrame, flight_id: Optional[str] = None) -> PredictionSample:
         """
@@ -178,3 +180,48 @@ class BaseDataset(Dataset):
             mask_traj = torch.zeros(self.horizon_seq_len, dtype=torch.bool)
 
         return target_traj_pos, target_traj_deltas, dec_in_pos, dec_in_deltas, mask_traj
+
+    def get_day_for_index(self, index: int) -> date:
+        """
+        Return the canonical calendar day for a given dataset index.
+
+        Subclasses must implement this using their canonical input_start_time.
+        """
+        raise NotImplementedError("get_day_for_index must be implemented by subclasses.")
+
+    def get_days_by_month(self, number_of_folds: int) -> dict[tuple[int, int], list[date]]:
+        """
+        Group all distinct days present in the dataset by (year, month).
+
+        Args:
+            number_of_folds: Total number of cross-validation folds. Used to
+                validate that each month has at least number_of_folds days.
+
+        Returns:
+            Mapping from (year, month) to a sorted list of unique date objects.
+
+        Raises:
+            ValueError: If any month has fewer distinct days than number_of_folds.
+        """
+        days_by_month: dict[tuple[int, int], set[date]] = {}
+
+        for index in range(self.size):
+            day_for_index = self.get_day_for_index(index)
+            month_key = (day_for_index.year, day_for_index.month)
+
+            if month_key not in days_by_month:
+                days_by_month[month_key] = set()
+            days_by_month[month_key].add(day_for_index)
+
+        days_by_month_sorted: dict[tuple[int, int], list[date]] = {}
+        for month_key, days in days_by_month.items():
+            sorted_days = sorted(days)
+            if len(sorted_days) < number_of_folds:
+                year, month = month_key
+                raise ValueError(
+                    f"Month {year:04d}-{month:02d} contains only {len(sorted_days)} distinct days, "
+                    f"which is fewer than the requested number_of_folds={number_of_folds}."
+                )
+            days_by_month_sorted[month_key] = sorted_days
+
+        return days_by_month_sorted
