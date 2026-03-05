@@ -8,6 +8,8 @@ from omegaconf import DictConfig
 from pytorch_lightning.callbacks import DeviceStatsMonitor, EarlyStopping, LearningRateMonitor, ModelCheckpoint, RichProgressBar
 from pytorch_lightning.loggers import WandbLogger
 
+from callbacks.metrics_parquet_callback import MetricsParquetCallback
+
 warnings.filterwarnings("ignore", message=".*srun.*")
 warnings.filterwarnings("ignore", message=".*Lightning model registry.*")
 
@@ -42,15 +44,18 @@ class Trainer(pl.Trainer):
             checkpoint_cfg = callbacks_cfg["checkpoint"]
             dirpath = checkpoint_cfg.get("dirpath", ".outputs/checkpoints")
             dirpath = dirpath + f"/{datetime.now().strftime('%Y-%m-%d')}/{datetime.now().strftime('%H-%M-%S')}"
+            monitor = checkpoint_cfg.get("monitor", "val_loss")
+            mode = checkpoint_cfg.get("mode", "min")
             checkpoint = ModelCheckpoint(
                 dirpath=dirpath,
                 filename=checkpoint_cfg.get("filename", "{epoch}-{val_loss:.2f}"),
-                monitor=checkpoint_cfg.get("monitor", "val_loss"),
-                mode=checkpoint_cfg.get("mode", "min"),
+                monitor=monitor,
+                mode=mode,
                 save_top_k=checkpoint_cfg.get("save_top_k", 1),
                 save_last=checkpoint_cfg.get("save_last", True)
             )
             callbacks.append(checkpoint)
+            callbacks.append(MetricsParquetCallback(dirpath=dirpath, monitor=monitor, mode=mode))
 
         callbacks.append(RichProgressBar())
         callbacks.append(DeviceStatsMonitor())

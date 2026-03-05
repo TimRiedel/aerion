@@ -15,7 +15,8 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from data.features import FeatureSchema
 from data.interface import RunwayData
-from models.metrics import AccumulatedTrajectoryMetrics, CompositeApproachLoss
+from models.losses import CompositeApproachLoss
+from models.metrics import TrajectoryMetrics, TrajectoryMetricsResult
 from visualization import plot_predictions_targets, plot_rtd_scatter, plot_rtde_violins
 
 
@@ -89,28 +90,18 @@ class BaseModule(pl.LightningModule):
     # --------------------------------------
 
     def on_train_epoch_start(self):
-        self.train_metrics = AccumulatedTrajectoryMetrics(self.horizon_seq_len, self.device)
+        self.train_metrics = TrajectoryMetrics(self.horizon_seq_len, self.device)
 
     def on_validation_epoch_start(self):
-        self.val_metrics = AccumulatedTrajectoryMetrics(self.horizon_seq_len, self.device)
+        self.val_metrics = TrajectoryMetrics(self.horizon_seq_len, self.device)
 
     def on_train_epoch_end(self):
-        metrics = self.train_metrics.compute(
-            reduce_op="sum",
-            strategy=self.trainer.strategy,
-        )
-        
-        self._log_metrics(metrics, "train")
-        self.train_metrics.reset()
+        result = self.train_metrics.compute()
+        self._log_metrics(result, "train")
 
     def on_validation_epoch_end(self):
-        metrics = self.val_metrics.compute(
-            reduce_op="sum",
-            strategy=self.trainer.strategy if hasattr(self.trainer, 'strategy') else None,
-        )
-        
-        self._log_metrics(metrics, "val")
-        self.val_metrics.reset()
+        result = self.val_metrics.compute()
+        self._log_metrics(result, "val")
 
     # --------------------------------------
     # Logging and Visualization
@@ -130,39 +121,38 @@ class BaseModule(pl.LightningModule):
         for name, sigma in loss_sigmas.items():
             self.log(f"{prefix}_loss_sigmas/{name}", sigma, on_step=False, on_epoch=True, batch_size=batch_size)
 
-    def _log_metrics(self, metrics: dict, prefix: str):
+    def _log_metrics(self, result: TrajectoryMetricsResult, prefix: str):
+        displacement = result.displacement
+        position = result.position
+        rtd = result.rtd
+        horizon = result.horizon
+
         self.log_dict({
-            f"{prefix}/ADE2D": metrics["ade_2d_mean"],
-            f"{prefix}/ADE3D": metrics["ade_3d_mean"],
-            f"{prefix}/FDE2D": metrics["fde_2d_mean"],
-            f"{prefix}/FDE3D": metrics["fde_3d_mean"],
-            f"{prefix}/MDE2D": metrics["mde_2d_mean"],
-            f"{prefix}/MDE3D": metrics["mde_3d_mean"],
-            f"{prefix}/RTD_ME": metrics["rtd_me"],
-            f"{prefix}/RTD_MAE": metrics["rtd_mae"],
-            f"{prefix}/RTD_MPE": metrics["rtd_mpe"],
-            f"{prefix}/RTD_MAPE": metrics["rtd_mape"],
-            f"{prefix}/RTD_ME_StdDev": metrics["rtd_me_std"],
-            f"{prefix}/RTD_MAE_StdDev": metrics["rtd_mae_std"],
-            f"{prefix}/RTD_MPE_StdDev": metrics["rtd_mpe_std"],
-            f"{prefix}/RTD_MAPE_StdDev": metrics["rtd_mape_std"],
-            f"{prefix}/Altitude_MAE": metrics["altitude_mae"],
+            f"{prefix}/ADE2D": displacement.ade_mean,
+            f"{prefix}/FDE2D": displacement.fde_mean,
+            f"{prefix}/MDE2D": displacement.mde_mean,
+            f"{prefix}/RTD_ME": rtd.mean_error,
+            f"{prefix}/RTD_MAE": rtd.mean_abs_error,
+            f"{prefix}/RTD_MPE": rtd.mean_pct_error,
+            f"{prefix}/RTD_MAPE": rtd.mean_abs_pct_error,
+            f"{prefix}/RTD_ME_StdDev": rtd.std_error,
+            f"{prefix}/RTD_MAE_StdDev": rtd.std_abs_error,
+            f"{prefix}/RTD_MPE_StdDev": rtd.std_pct_error,
+            f"{prefix}/RTD_MAPE_StdDev": rtd.std_abs_pct_error,
+            f"{prefix}/Altitude_MAE": position.altitude_mae_mean,
         })
 
-        self._horizon_line_plot(metrics["ade_2d_per_horizon"], "ADE2D", prefix)
-        self._horizon_line_plot(metrics["ade_3d_per_horizon"], "ADE3D", prefix)
+        self._horizon_line_plot(horizon.ade, "ADE2D", prefix)
         for feature in ["X", "Y", "Altitude"]:
-            self._horizon_line_plot(metrics["mae_per_horizon"], "MAE", prefix, feature)
-            self._horizon_line_plot(metrics["rmse_per_horizon"], "RMSE", prefix, feature)
-        
-        self._log_histogram(metrics["traj_ade_2d_values"], "ADE2D", prefix)
-        self._log_histogram(metrics["traj_ade_3d_values"], "ADE3D", prefix)
-        self._log_histogram(metrics["traj_fde_2d_values"], "FDE2D", prefix)
-        self._log_histogram(metrics["traj_fde_3d_values"], "FDE3D", prefix)
-        self._log_histogram(metrics["traj_rtdpe_values"], "RTD PE", prefix, is_rtd=True)
-        
-        self._plot_rtde_violins(metrics["traj_rtd_target_values"], metrics["traj_rtde_values"], metrics["traj_rtdpe_values"], prefix=prefix)
-        self._plot_rtd_scatter(metrics["traj_rtd_target_values"], metrics["traj_rtd_pred_values"], metrics["traj_rtdpe_values"], prefix=prefix)
+            self._horizon_line_plot(horizon.mae, "MAE", prefix, feature)
+            self._horizon_line_plot(horizon.rmse, "RMSE", prefix, feature)
+
+        self._log_histogram(displacement.ade_trajectories, "ADE2D", prefix)
+        self._log_histogram(displacement.fde_trajectories, "FDE2D", prefix)
+        self._log_histogram(rtd.rtdpe_trajectories, "RTD PE", prefix, is_rtd=True)
+
+        self._plot_rtde_violins(rtd.rtd_target_trajectories, rtd.rtde_trajectories, rtd.rtdpe_trajectories, prefix=prefix)
+        self._plot_rtd_scatter(rtd.rtd_target_trajectories, rtd.rtd_pred_trajectories, rtd.rtdpe_trajectories, prefix=prefix)
 
     def _horizon_line_plot(self, metric: torch.Tensor, metric_name: str, prefix: str, feature_name: str = None):
         if feature_name is not None:

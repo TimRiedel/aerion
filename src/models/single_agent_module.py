@@ -5,14 +5,14 @@ import torch
 from data.compute.trajectory import compute_rtd, reconstruct_positions_from_deltas
 from data.interface import PredictionSample
 from models.base_module import BaseModule
-from models.metrics import AccumulatedTrajectoryMetrics
+from models.metrics import TrajectoryMetrics
 
 
 class SingleAgentModule(BaseModule):
     def common_step(self, 
         batch: PredictionSample,
         batch_idx: int,
-        metrics: AccumulatedTrajectoryMetrics,
+        metrics: TrajectoryMetrics,
         prefix: str,
         num_trajectories_plotting: int = 6,
     ) -> torch.Tensor:
@@ -45,6 +45,7 @@ class SingleAgentModule(BaseModule):
             target_pad_mask=target_pad_mask,
             pred_rtd=pred_rtd,
             target_rtd=target_rtd,
+            flight_id=list(flight_id),
         )
         self._plot_prediction_vs_target(
             input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
