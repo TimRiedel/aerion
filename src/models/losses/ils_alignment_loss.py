@@ -318,7 +318,7 @@ class ILSAlignmentLoss(nn.Module):
             track_penalties_padded = torch.cat([track_penalties[:1], track_penalties])  # [N]
             
             # Combined loss: sum of localizer, glideslope, and track penalties
-            combined_loss = localizer_penalties + track_penalties_padded  # [N]
+            combined_loss = localizer_penalties + glideslope_penalties + track_penalties_padded  # [N]
             losses.append(combined_loss.mean())
         
         total_loss = torch.stack(losses).mean()
