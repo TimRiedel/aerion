@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import cm
 from matplotlib.patches import Patch
+from matplotlib.transforms import offset_copy
 
 from .violin_plot_rtde import group_rtd_by_target_bucket
 
@@ -54,6 +55,12 @@ def plot_rtd_error_line(
     ax.fill_between(x, mean_per_bucket - std_per_bucket, mean_per_bucket + std_per_bucket,
                     color=color, alpha=0.18, linewidth=0, zorder=1)
     ax.plot(x, mean_per_bucket, color=color, marker="o", linewidth=2.0, zorder=2, label="Mean")
+
+    trans = offset_copy(ax.transData, fig=fig, y=10, units="points")
+    for xi, val in zip(x, mean_per_bucket):
+        if not np.isnan(val):
+            ax.text(xi, val, f"{val:.1f}", color=color, fontsize=plt.rcParams["font.size"],
+                    ha="center", va="bottom", zorder=3, transform=trans)
 
     band = Patch(facecolor=color, alpha=0.35, label="± 1σ")
     lines, labels = ax.get_legend_handles_labels()
