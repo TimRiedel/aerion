@@ -17,7 +17,7 @@ from data.features import FeatureSchema
 from data.interface import RunwayData
 from models.losses import CompositeApproachLoss
 from models.metrics import TrajectoryMetrics, TrajectoryMetricsResult
-from visualization import plot_predictions_targets, plot_rtd_scatter, plot_rtde_violins
+from visualization import plot_predictions_targets, plot_rtd_error_line, plot_rtd_scatter, plot_rtde_violins
 
 
 class BaseModule(pl.LightningModule):
@@ -152,6 +152,7 @@ class BaseModule(pl.LightningModule):
         self._log_histogram(rtd.rtdpe_trajectories, "RTD PE", prefix, is_rtd=True)
 
         self._plot_rtde_violins(rtd.rtd_target_trajectories, rtd.rtde_trajectories, rtd.rtdpe_trajectories, prefix=prefix)
+        self._plot_rtd_error_line(rtd.rtd_target_trajectories, rtd.rtde_trajectories, rtd.rtdpe_trajectories, prefix=prefix)
         self._plot_rtd_scatter(rtd.rtd_target_trajectories, rtd.rtd_pred_trajectories, rtd.rtdpe_trajectories, prefix=prefix)
 
     def _horizon_line_plot(self, metric: torch.Tensor, metric_name: str, prefix: str, feature_name: str = None):
@@ -288,7 +289,22 @@ class BaseModule(pl.LightningModule):
         self.logger.experiment.log({f"{prefix}-rtd/RTD-PE-Violins": self.fig_to_wandb_image(fig)})
         plt.close(fig)
 
-    def _plot_rtd_scatter(self, 
+    def _plot_rtd_error_line(
+        self,
+        rtd_target: torch.Tensor,
+        rtde: torch.Tensor,
+        rtdpe: torch.Tensor,
+        prefix: str = "val",
+    ):
+        rtd_target_km = (rtd_target / 1000.0).detach().cpu().float().numpy()
+        rtde_km = (rtde / 1000.0).detach().cpu().float().numpy()
+        rtdpe = rtdpe.detach().cpu().float().numpy()
+
+        fig, _ = plot_rtd_error_line(rtd_target_km, rtde_km, rtdpe)
+        self.logger.experiment.log({f"{prefix}-rtd/RTD-MAE-MAPE-Line": self.fig_to_wandb_image(fig)})
+        plt.close(fig)
+
+    def _plot_rtd_scatter(self,
         rtd_target: torch.Tensor,
         rtde: torch.Tensor,
         rtdpe: torch.Tensor,
