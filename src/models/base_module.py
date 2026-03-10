@@ -300,8 +300,12 @@ class BaseModule(pl.LightningModule):
         rtde_km = (rtde / 1000.0).detach().cpu().float().numpy()
         rtdpe = rtdpe.detach().cpu().float().numpy()
 
-        fig, _ = plot_rtd_error_line(rtd_target_km, rtde_km, rtdpe)
-        self.logger.experiment.log({f"{prefix}-rtd/RTD-MAE-MAPE-Line": self.fig_to_wandb_image(fig)})
+        fig, _ = plot_rtd_error_line(rtd_target_km, np.abs(rtde_km), ylabel="RTD MAE (km)", color_factor=0.2)
+        self.logger.experiment.log({f"{prefix}-rtd/RTD-MAE-Line": self.fig_to_wandb_image(fig)})
+        plt.close(fig)
+
+        fig, _ = plot_rtd_error_line(rtd_target_km, np.abs(rtdpe), ylabel="RTD MAPE (%)", color_factor=0.55)
+        self.logger.experiment.log({f"{prefix}-rtd/RTD-MAPE-Line": self.fig_to_wandb_image(fig)})
         plt.close(fig)
 
     def _plot_rtd_scatter(self,

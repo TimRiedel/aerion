@@ -3,74 +3,68 @@ from typing import Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import cm
+from matplotlib.patches import Patch
 
 from .violin_plot_rtde import group_rtd_by_target_bucket
 
 
 def plot_rtd_error_line(
     target_rtd: np.ndarray,
-    rtde_km: np.ndarray,
-    rtdpe: np.ndarray,
+    values: np.ndarray,
+    ylabel: str,
+    color_factor: float = 0.2,
     bin_edges_km: list[int] = [25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300],
     dpi: int = 150,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
-    Create a dual-axis line plot of per-bucket RTD MAE (km, blue, left axis)
-    and MAPE (%, orange, right axis) by target RTD bucket.
+    Create a line plot of per-bucket mean ± 1σ for a single error metric.
 
     Parameters
     ----------
     target_rtd : np.ndarray
         Target RTD per trajectory in km, shape (B,).
-    rtde_km : np.ndarray
-        Signed RTD prediction error in km per trajectory, shape (B,).
-    rtdpe : np.ndarray
-        Signed RTD percentage error in % per trajectory, shape (B,).
+    values : np.ndarray
+        Per-trajectory error values (e.g. absolute km error or percentage error), shape (B,).
+    ylabel : str
+        Label for the y-axis (e.g. "RTD MAE (km)" or "RTD MAPE (%)").
+    color :
+        Matplotlib color for the line and std band.
     bin_edges_km : list[int]
-        Bin edges in km. Default matches the violin plot buckets.
+        Bin edges in km.
     dpi : int
         Figure DPI.
 
     Returns
     -------
     fig : matplotlib.figure.Figure
-    ax_mae : matplotlib.axes.Axes  (left, MAE)
+    ax : matplotlib.axes.Axes
     """
+    color = cm.get_cmap("viridis")(color_factor)
     bin_edges_km = np.array(bin_edges_km)
     bin_labels = [f"[{int(lo)}, {int(hi)}]" for lo, hi in zip(bin_edges_km[:-1], bin_edges_km[1:])]
     n_bins = len(bin_edges_km) - 1
     x = np.arange(n_bins)
 
-    mae_groups = group_rtd_by_target_bucket(target_rtd, np.abs(rtde_km), bin_edges_km)
-    mape_groups = group_rtd_by_target_bucket(target_rtd, np.abs(rtdpe), bin_edges_km)
+    groups = group_rtd_by_target_bucket(target_rtd, values, bin_edges_km)
+    mean_per_bucket = np.array([g.mean() if len(g) > 0 else np.nan for g in groups])
+    std_per_bucket = np.array([g.std() if len(g) > 1 else np.nan for g in groups])
 
-    mae_per_bucket = np.array([g.mean() if len(g) > 0 else np.nan for g in mae_groups])
-    mape_per_bucket = np.array([g.mean() if len(g) > 0 else np.nan for g in mape_groups])
+    fig, ax = plt.subplots(figsize=(12, 6), dpi=dpi)
 
-    fig, ax_mae = plt.subplots(figsize=(12, 6), dpi=dpi)
-    ax_mape = ax_mae.twinx()
+    ax.fill_between(x, mean_per_bucket - std_per_bucket, mean_per_bucket + std_per_bucket,
+                    color=color, alpha=0.18, linewidth=0, zorder=1)
+    ax.plot(x, mean_per_bucket, color=color, marker="o", linewidth=2.0, zorder=2, label="Mean")
 
-    viridis = cm.get_cmap("viridis")
-    color_mae = viridis(0.2)
-    color_mape = viridis(0.65)
+    band = Patch(facecolor=color, alpha=0.35, label="± 1σ")
+    lines, labels = ax.get_legend_handles_labels()
+    ax.legend(lines + [band], labels + [band.get_label()], loc="upper left")
 
-    ax_mae.plot(x, mae_per_bucket, color=color_mae, marker="o", linewidth=2.0, label="MAE (km)")
-    ax_mape.plot(x, mape_per_bucket, color=color_mape, marker="s", linewidth=2.0, label="MAPE (%)")
-
-    ax_mae.set_xlabel("Target Distance (km)")
-    ax_mae.set_ylabel("RTD MAE (km)")
-    ax_mae.tick_params(axis="y")
-    ax_mae.set_xticks(x)
-    ax_mae.set_xticklabels(bin_labels)
-    ax_mae.set_xlim(-0.5, n_bins - 0.5)
-    ax_mae.grid(True, linestyle="--", alpha=0.5)
-
-    ax_mape.set_ylabel("RTD MAPE (%)")
-    ax_mape.tick_params(axis="y")
-
-    lines_mae, labels_mae = ax_mae.get_legend_handles_labels()
-    lines_mape, labels_mape = ax_mape.get_legend_handles_labels()
-    ax_mae.legend(lines_mae + lines_mape, labels_mae + labels_mape, loc="upper left")
+    ax.set_xlabel("Target Distance (km)")
+    ax.set_ylabel(ylabel)
+    ax.set_xticks(x)
+    ax.set_xticklabels(bin_labels)
+    ax.set_xlim(-0.5, n_bins - 0.5)
+    ax.grid(True, linestyle="--", alpha=0.5)
 
     fig.tight_layout()
-    return fig, ax_mae
+    return fig, ax
