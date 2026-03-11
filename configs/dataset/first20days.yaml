@@ -1,4 +1,4 @@
-name: first10days
+name: first20days
 
 trajectories_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first20days-rwy24L/trajectories/EDDB_trajectories-resampled_2024-01-01_2024-12-31.parquet"
 scenes_path: "/sc/projects/sci-naumann/chair/tim.riedel/FlightFusion/datasets/EDDB-first20days-rwy24L/trajectories/EDDB_trajectories-scenes_2024-01-01_2024-12-31.parquet"
