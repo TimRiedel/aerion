@@ -281,11 +281,11 @@ class BaseModule(pl.LightningModule):
         rtde_km = (rtde / 1000.0).detach().cpu().float().numpy()
         rtdpe = rtdpe.detach().cpu().float().numpy()
 
-        fig, _ = plot_rtde_violins(rtd_target_km, rtde_km, is_relative_rtde=False)
+        fig, _ = plot_rtde_violins(rtd_target_km, rtde_km, is_rtdpe=False)
         self.logger.experiment.log({f"{prefix}-rtd/RTDE-Violins": self.fig_to_wandb_image(fig)})
         plt.close(fig)
 
-        fig, _ = plot_rtde_violins(rtd_target_km, rtdpe, is_relative_rtde=True)
+        fig, _ = plot_rtde_violins(rtd_target_km, rtdpe, is_rtdpe=True)
         self.logger.experiment.log({f"{prefix}-rtd/RTD-PE-Violins": self.fig_to_wandb_image(fig)})
         plt.close(fig)
 
