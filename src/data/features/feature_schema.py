@@ -54,6 +54,14 @@ class FeatureSchema:
 
 
     @property
+    def required_df_cols(self) -> List[str]:
+        """Deduplicated set of all DataFrame columns needed by any encoder or decoder group."""
+        cols: set[str] = set()
+        for group in self.encoder_groups + self.decoder_groups:
+            cols.update(group.required_df_cols)
+        return list(cols)
+
+    @property
     def encoder_dim(self) -> int:
         return sum(group.width for group in self.encoder_groups)
 
@@ -67,17 +75,36 @@ class FeatureSchema:
 
     # ----- Dataset construction (called in Dataset.__getitem__) -----
 
-    def _concat_features(self, groups: List[FeatureGroup], xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData) -> Tensor:
+    def _concat_features(
+        self,
+        groups: List[FeatureGroup],
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        extra_features: Optional[Dict[str, Tensor]] = None,
+    ) -> Tensor:
         parts = []
         for group in groups:
-            parts.append(group.compute(xyz_positions, xyz_deltas, runway))
+            parts.append(group.compute(xyz_positions, xyz_deltas, runway, extra_features))
         return torch.cat(parts, dim=-1)
 
-    def build_encoder_input(self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData) -> Tensor:
-        return self._concat_features(self.encoder_groups, xyz_positions, xyz_deltas, runway)
+    def build_encoder_input(
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        extra_features: Optional[Dict[str, Tensor]] = None,
+    ) -> Tensor:
+        return self._concat_features(self.encoder_groups, xyz_positions, xyz_deltas, runway, extra_features)
 
-    def build_decoder_input(self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData) -> Tensor:
-        return self._concat_features(self.decoder_groups, xyz_positions, xyz_deltas, runway)
+    def build_decoder_input(
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        extra_features: Optional[Dict[str, Tensor]] = None,
+    ) -> Tensor:
+        return self._concat_features(self.decoder_groups, xyz_positions, xyz_deltas, runway, extra_features)
 
     def build_target(self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData) -> Tensor:
         return self._concat_features(self.output_groups, xyz_positions, xyz_deltas, runway)
