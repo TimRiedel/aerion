@@ -158,14 +158,14 @@ class BaseDataset(Dataset):
             target_pos_padding = target_traj_pos[-1:].repeat(padding_len, 1)
             target_traj_pos = torch.cat([target_traj_pos, target_pos_padding], dim=0)
             
-            target_delta_padding = target_traj_deltas[-1:].repeat(padding_len, 1)
+            target_delta_padding = torch.zeros(padding_len, target_traj_deltas.shape[-1])
             target_traj_deltas = torch.cat([target_traj_deltas, target_delta_padding], dim=0)
             
             # Pad dec_in
             dec_in_pos_padding = dec_in_pos[-1:].repeat(padding_len, 1)
             dec_in_pos = torch.cat([dec_in_pos, dec_in_pos_padding], dim=0)
 
-            dec_in_delta_padding = dec_in_deltas[-1:].repeat(padding_len, 1)
+            dec_in_delta_padding = torch.zeros(padding_len, dec_in_deltas.shape[-1])
             dec_in_deltas = torch.cat([dec_in_deltas, dec_in_delta_padding], dim=0)
             
             mask_traj = torch.cat([
