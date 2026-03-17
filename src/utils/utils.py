@@ -1,4 +1,5 @@
 import logging
+import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
 from utils.trainer import Trainer
@@ -6,7 +7,7 @@ from utils.trainer import Trainer
 logger = logging.getLogger(__name__)
 
 
-def log_important_parameters(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
+def log_important_parameters(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int, max_num_agents: int) -> None:
     num_trajectories_to_predict = cfg.get("debug", {}).get("num_trajectories_to_predict", None)
 
     formatted = f"""\
@@ -23,7 +24,8 @@ def log_important_parameters(cfg: DictConfig, input_seq_len: int, horizon_seq_le
     Dataset:                    {cfg.dataset.name}
     Input Length:               {input_seq_len}
     Horizon Length:             {horizon_seq_len}
-    Num traject. to predict:    {num_trajectories_to_predict}
+    Max num agents:             {max_num_agents if max_num_agents is not None else "1"}
+    {f"Num traject. to predict:    {num_trajectories_to_predict}" if num_trajectories_to_predict is not None else ""}
     """
     logger.info("\n%s", formatted)
 
@@ -41,3 +43,8 @@ def add_wandb_tags(cfg: DictConfig) -> None:
 
 def calculate_seq_len(time_minutes: int, resampling_rate_seconds: int) -> int:
     return time_minutes * 60 // resampling_rate_seconds
+
+def calculate_max_num_agents(scene_path: str) -> int:
+    scene_df = pd.read_parquet(scene_path)
+    num_aircraft_per_scene = scene_df.groupby("scene_id").size()
+    return num_aircraft_per_scene.max()

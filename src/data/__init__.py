@@ -1,3 +1,6 @@
-from .approach_data import ApproachData
 from .features import FeatureSchema
-from .interface import RunwayData, Sample, TrajectoryData
+from .data import ApproachData, TrafficData
+from .interface import PredictionSample, RunwayData, TrajectoryData
+
+
+__all__ = ["FeatureSchema", "ApproachData", "TrafficData", "PredictionSample", "RunwayData", "TrajectoryData"]

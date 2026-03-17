@@ -10,6 +10,7 @@ defaults:
 # General settings
 # --------------------------------------
 experiment_name: "unconfigured_experiment"
+
 stage: "train"
 seed: 42
 load_checkpoint_path: null # Only used for prediction and evaluation
@@ -17,6 +18,8 @@ execution:
   num_waypoints_to_predict: null
   num_trajectories_to_predict: null
   num_visualized_traj: 20
+  multi_agent_prediction: false
+  max_num_agents: 8
 
 # --------------------------------------
 # Callbacks
@@ -78,20 +81,15 @@ loss:
     enabled: true
   altitude:
     enabled: true
-  alignment:
+  localizer:
     enabled: true
+    num_waypoints: 6
+  glideslope:
+    enabled: false
     num_waypoints: 6
   turn_rate:
     enabled: true
     dt_seconds: 30.0
-
-# --------------------------------------
-# Scheduled Sampling
-# --------------------------------------
-scheduled_sampling:
-  enabled: true
-  teacher_forcing_epochs: 1
-  transition_epochs: 15
 
 # --------------------------------------
 # Weights and Biases
@@ -107,4 +105,4 @@ wandb:
 # --------------------------------------
 hydra:
   run:
-    dir: .outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: .outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}_${experiment_name}

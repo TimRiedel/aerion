@@ -14,7 +14,7 @@ from data.features.feature_group import (
     XYPosition,
 )
 from data.interface import RunwayData
-from data.transforms.normalize import Denormalizer, FeatureSliceNormalizer, Normalizer
+from data.utils import Denormalizer, FeatureSliceNormalizer, Normalizer
 
 
 class FeatureSchema:
@@ -97,22 +97,24 @@ class FeatureSchema:
         for i in range(len(dataset)):
             sample = dataset[i]
 
-            valid_horizon = ~sample.target_padding_mask
+            valid_flat = (~sample.target_padding_mask).reshape(-1)
 
             # 2.1 Stats for positions and deltas.
-            all_pos.append(sample.xyz_positions.encoder_in)
-            all_pos.append(sample.xyz_positions.target[valid_horizon])
-            all_delta.append(sample.xyz_deltas.encoder_in)
-            all_delta.append(sample.xyz_deltas.target[valid_horizon])
+            # reshape(-1, 3) flattens the optional agent dimension so both single-agent
+            # [T, 3] and multi-agent [T, N, 3] tensors contribute a flat list of positions or deltas [3].
+            all_pos.append(sample.xyz_positions.encoder_in.reshape(-1, 3))
+            all_pos.append(sample.xyz_positions.target.reshape(-1, 3)[valid_flat])
+            all_delta.append(sample.xyz_deltas.encoder_in.reshape(-1, 3))
+            all_delta.append(sample.xyz_deltas.target.reshape(-1, 3)[valid_flat])
 
             # 2.2 Group-specific stats for groups other than xy positions, altitude and deltas.
             for group in self.encoder_groups:
                 if not isinstance(group, (XYPosition, Altitude, DeltaXYZ)):
-                    all_group_values[group.name].append(group.get_data(sample.trajectory.encoder_in))
+                    all_group_values[group.name].append(group.get_data(sample.trajectory.encoder_in).reshape(-1, group.width))
 
             for group in self.decoder_groups:
                 if not isinstance(group, (XYPosition, Altitude, DeltaXYZ)):
-                    all_group_values[group.name].append(group.get_data(sample.trajectory.dec_in)[valid_horizon])
+                    all_group_values[group.name].append(group.get_data(sample.trajectory.dec_in).reshape(-1, group.width)[valid_flat])
 
         # 3. Compute mean and std.
         pos_cat = torch.cat(all_pos, dim=0)
@@ -223,16 +225,17 @@ class FeatureSchema:
     ) -> Tuple[Tensor, Tensor]:
         """
         Build the next normalized decoder input token during AR inference.
+        Works for both single-agent and multi-agent tensors.
 
         Args:
-            pred_deltas_norm: model output [B, 1, output_dim] (normalized)
-            current_position_abs: [B, 3] absolute position before this step
-            runway: batched RunwayData
+            pred_deltas_norm: Model output [B, 1, F] or [B, 1, N, F] (normalized).
+            current_position_abs: [B, 3] or [B, N, 3] absolute position before this step.
+            runway: Batched RunwayData.
 
         Returns:
-            (next_decoder_token [B, 1, decoder_dim], updated_position_abs [B, 3])
+            (next_decoder_token [B, 1, F_dec] or [B, 1, N, F_dec], updated_position_abs).
         """
-        pred_delta_abs = self.denormalize_deltas(pred_deltas_norm[:, 0, :])
+        pred_delta_abs = self.denormalize_deltas(pred_deltas_norm[:, 0])
         new_position_abs = current_position_abs + pred_delta_abs
 
         parts = []

@@ -54,7 +54,11 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
         )
         self.output_projection = nn.Linear(d_model, output_dim)
 
-    def encode(self, input_traj: torch.Tensor) -> torch.Tensor:
+    def encode(
+        self,
+        input_traj: torch.Tensor,
+        target_padding_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         input_emb = self.input_embedding(input_traj)
         input_emb = self.input_pos_encoding(input_emb)
         return self.transformer.encoder(input_emb)
@@ -64,7 +68,7 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
         dec_in_traj: torch.Tensor, 
         memory: torch.Tensor, 
         causal_mask: Optional[torch.Tensor] = None,
-        target_pad_mask: Optional[torch.Tensor] = None
+        target_padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         dec_in_emb = self.dec_in_embedding(dec_in_traj)
         dec_in_emb = self.dec_in_pos_encoding(dec_in_emb)
@@ -73,7 +77,7 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
             tgt=dec_in_emb,
             memory=memory,
             tgt_mask=causal_mask,
-            tgt_key_padding_mask=target_pad_mask
+            tgt_key_padding_mask=target_padding_mask,
         )
         return self.output_projection(output)
         
@@ -82,8 +86,7 @@ class TrajectoryTransformer(nn.Module, TrajectoryBackbone):
         input_traj: torch.Tensor, 
         dec_in_traj: torch.Tensor, 
         causal_mask: Optional[torch.Tensor] = None, 
-        target_pad_mask: Optional[torch.Tensor] = None
+        target_padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         memory = self.encode(input_traj)
-        output = self.decode(dec_in_traj, memory, causal_mask=causal_mask, target_pad_mask=target_pad_mask)
-        return output
+        return self.decode(dec_in_traj, memory, causal_mask=causal_mask, target_padding_mask=target_padding_mask)

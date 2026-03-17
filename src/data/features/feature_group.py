@@ -6,7 +6,7 @@ from torch import Tensor
 
 from data.compute.runway import get_distances_to_centerline
 from data.interface import RunwayData
-from data.transforms.normalize import Normalizer
+from data.utils import Normalizer
 
 
 class FeatureGroup(ABC):
@@ -43,8 +43,8 @@ class FeatureGroup(ABC):
         Called by the dataset during __getitem__.
 
         Args:
-            xyz_positions: absolute trajectory positions [B, T, 3]
-            xyz_deltas: absolute trajectory deltas [B, T, 3]
+            xyz_positions: absolute trajectory positions [T, 3]
+            xyz_deltas: absolute trajectory deltas [T, 3]
             runway: RunwayData
 
         Returns:
@@ -61,25 +61,26 @@ class FeatureGroup(ABC):
         """
         Build the next absolute decoder input token during autoregressive inference.
         Both input and output are in absolute space (not normalized).
+        Works for both single-agent and multi-agent tensors.
 
         Args:
-            current_position_abs: current absolute position [B, 3]
-            pred_delta_abs: predicted delta in absolute coordinates [B, 3]
-            runway: RunwayData
+            current_position_abs: [B, 3] or [B, N, 3].
+            pred_delta_abs: [B, 3] or [B, N, 3].
+            runway: RunwayData (fields are [B, ...] or [B, N, ...]).
 
         Returns:
-            Next decoder input token [B, width]
+            Next decoder input token [B, width] or [B, N, width].
         """
     
     def get_data(self, trajectory: torch.Tensor) -> Tensor:
         """
         Args:
-            trajectory: Unbatched tensor [T, F]
+            trajectory: [T, F] (single-agent) or [T, N, F] (multi-agent scene).
 
         Returns:
-            Feature tensor [T, width]
+            Feature tensor [..., width] — same leading dims as input.
         """
-        return trajectory[:, self.start_idx:self.end_idx]
+        return trajectory[..., self.start_idx:self.end_idx]
 
     def create_normalizer(self, mean: Tensor, std: Tensor) -> None:
         self._normalizer = Normalizer(mean=mean, std=std)
@@ -105,7 +106,7 @@ class XYPosition(FeatureGroup):
         pred_delta_abs: Tensor,
         runway: RunwayData,
     ) -> Tensor:
-        return current_position_abs[:, :2]
+        return current_position_abs[..., :2]
 
 
 class Altitude(FeatureGroup):
@@ -123,7 +124,7 @@ class Altitude(FeatureGroup):
         pred_delta_abs: Tensor,
         runway: RunwayData,
     ) -> Tensor:
-        return current_position_abs[:, 2:3]
+        return current_position_abs[..., 2:3]
 
 
 class DeltaXYZ(FeatureGroup):
@@ -160,8 +161,8 @@ class DistanceToThresholdXY(FeatureGroup):
         pred_delta_abs: Tensor,
         runway: RunwayData,
     ) -> Tensor:
-        threshold_xy = runway.xyz[:, :2]  # [B, 2]
-        return get_distances_to_centerline(current_position_abs[:, :2], [threshold_xy])
+        threshold_xy = runway.xyz[..., :2]
+        return get_distances_to_centerline(current_position_abs[..., :2], [threshold_xy])
 
 
 class DistancesToCenterlineXY(FeatureGroup):
@@ -188,7 +189,7 @@ class DistancesToCenterlineXY(FeatureGroup):
         runway: RunwayData,
     ) -> Tensor:
         return get_distances_to_centerline(
-            current_position_abs[:, :2], runway.centerline_points_xy
+            current_position_abs[..., :2], runway.centerline_points_xy
         )
 
 

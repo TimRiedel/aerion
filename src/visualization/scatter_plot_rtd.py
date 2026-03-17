@@ -7,7 +7,7 @@ import numpy as np
 def plot_rtd_scatter(
     target_rtd: np.ndarray,
     pred_rtd: np.ndarray,
-    rtde_relative: np.ndarray,
+    rtdpe: np.ndarray,
     x_max: float = 300.0,
     relative_error_min: float = -50.0,
     relative_error_max: float = 50.0,
@@ -26,8 +26,8 @@ def plot_rtd_scatter(
         Target RTD per trajectory in km, shape (B,).
     pred_rtd : np.ndarray
         Predicted RTD per trajectory in km, shape (B,).
-    rtde_relative : np.ndarray
-        Relative RTD error per trajectory (dimensionless, e.g. fraction),
+    rtdpe : np.ndarray
+        RTD Percentage Error (RTD PE) per trajectory in percent,
         shape (B,). Points are colored by this value using the viridis
         colormap and a colorbar is added.
     x_max: float
@@ -54,7 +54,7 @@ def plot_rtd_scatter(
     """
     target_rtd = np.asarray(target_rtd).reshape(-1)
     pred_rtd = np.asarray(pred_rtd).reshape(-1)
-    rtde_relative = np.asarray(rtde_relative).reshape(-1)
+    rtdpe = np.asarray(rtdpe).reshape(-1)
 
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     scatter_kwargs = dict(
@@ -64,22 +64,22 @@ def plot_rtd_scatter(
     )
 
     # Limit color range to within [-100, 100] based on data
-    rel_min = float(np.min(rtde_relative)) if rtde_relative.size else 0.0
-    rel_max = float(np.max(rtde_relative)) if rtde_relative.size else 0.0
+    rel_min = float(np.min(rtdpe)) if rtdpe.size else 0.0
+    rel_max = float(np.max(rtdpe)) if rtdpe.size else 0.0
     vmin = max(rel_min, relative_error_min)
     vmax = min(rel_max, relative_error_max)
 
     sc = ax.scatter(
         target_rtd,
         pred_rtd,
-        c=rtde_relative,
+        c=rtdpe,
         cmap=cmap,
         vmin=vmin,
         vmax=vmax,
         **scatter_kwargs,
     )
     cbar = fig.colorbar(sc, ax=ax)
-    cbar.set_label("Relative RTD error (%)")
+    cbar.set_label("RTD Percentage Error (RTD PE, %)")
 
     # Add label via a proxy artist so the legend stays compact even with colorbar
     ax.scatter(

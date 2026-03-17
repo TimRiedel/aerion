@@ -4,11 +4,11 @@ from torch import nn
 from .ade_loss import ADELoss
 from .altitude_loss import AltitudeLoss
 from .fde_loss import FDELoss
-from .ils_alignment_loss import ILSAlignmentLoss
+from .ils_alignment_loss import GlideslopeAlignmentLoss, LocalizerAlignmentLoss
 from .rtd_loss import RTDLoss
 from .turn_rate_loss import TurnRateLoss
 
-LOSS_ORDER = ["ade", "fde", "rtd", "altitude", "alignment", "turn_rate"]
+LOSS_ORDER = ["ade", "fde", "rtd", "altitude", "localizer", "glideslope", "turn_rate"]
 
 
 class CompositeApproachLoss(nn.Module):
@@ -19,7 +19,8 @@ class CompositeApproachLoss(nn.Module):
     - ADE (2D, normalized): lateral trajectory shape; avoids X/Y dominating in 3D.
     - FDE (3D, normalized): endpoint (x,y,z) correct so aircraft arrives at threshold and altitude.
     - Altitude (MSE, normalized): dedicated vertical profile loss.
-    - FDE + Alignment: get to runway and match approach heading/glideslope.
+    - Localizer: get to runway and match approach heading (localizer + track).
+    - Glideslope: vertical approach angle alignment.
     - RTD: flown track distance correct.
     - Turn Rate: turn rate within physical limits.
 
@@ -56,9 +57,13 @@ class CompositeApproachLoss(nn.Module):
             self.rtd_loss = RTDLoss()
         if "altitude" in self.enabled_losses:
             self.altitude_loss = AltitudeLoss()
-        if "alignment" in self.enabled_losses:
-            self.alignment_loss = ILSAlignmentLoss(
-                num_final_waypoints=loss_configs["alignment"].get("num_waypoints", 7)
+        if "localizer" in self.enabled_losses:
+            self.localizer_loss = LocalizerAlignmentLoss(
+                num_final_waypoints=loss_configs["localizer"].get("num_waypoints", 7)
+            )
+        if "glideslope" in self.enabled_losses:
+            self.glideslope_loss = GlideslopeAlignmentLoss(
+                num_final_waypoints=loss_configs["glideslope"].get("num_waypoints", 7)
             )
         if "turn_rate" in self.enabled_losses:
             self.turn_rate_loss = TurnRateLoss(
@@ -107,8 +112,10 @@ class CompositeApproachLoss(nn.Module):
                 losses.append(self.rtd_loss(pred_rtd, target_rtd))
             if name == "altitude":
                 losses.append(self.altitude_loss(pred_pos_norm, target_pos_norm, target_pad_mask))
-            if name == "alignment":
-                losses.append(self.alignment_loss(pred_pos_abs, target_pos_abs, target_pad_mask, runway))
+            if name == "localizer":
+                losses.append(self.localizer_loss(pred_pos_abs, target_pos_abs, target_pad_mask, runway))
+            if name == "glideslope":
+                losses.append(self.glideslope_loss(pred_pos_abs, target_pos_abs, target_pad_mask, runway))
             if name == "turn_rate":
                 losses.append(self.turn_rate_loss(pred_deltas_abs, target_pad_mask))
 
