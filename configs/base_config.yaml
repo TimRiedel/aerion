@@ -18,6 +18,8 @@ execution:
   num_waypoints_to_predict: null
   num_trajectories_to_predict: null
   num_visualized_traj: 20
+  pred_end_epsilon: 100.0       # Delta magnitude threshold (meters) to detect prediction end
+  pred_end_min_consecutive: 3   # Consecutive near-zero steps required to trigger end
   multi_agent_prediction: false
   max_num_agents: 8
 

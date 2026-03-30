@@ -1,9 +1,10 @@
 import torch
+from data.compute.trajectory import length_to_mask
 from torch import nn
 
 
 class ADELoss(nn.Module):
-    
+
     def __init__(
         self,
         use_3d: bool = True,
@@ -11,7 +12,7 @@ class ADELoss(nn.Module):
     ):
         """
         Initialize ADE loss.
-        
+
         Args:
             use_3d: If True, compute 3D distance (x, y, altitude). If False, compute 2D distance (x, y only).
             epsilon: Small value added to distance calculation for numerical stability
@@ -24,24 +25,25 @@ class ADELoss(nn.Module):
         self,
         pred_pos_norm: torch.Tensor,
         target_pos_norm: torch.Tensor,
-        target_pad_mask: torch.Tensor
+        eval_len: torch.Tensor,
     ) -> torch.Tensor:
         """
         Average Displacement Error (ADE) loss in 2D or 3D normalized space.
 
         Computes the masked ADE loss by calculating Euclidean distance between
-        normalized positions and averaging over valid (non-padded) positions.
+        normalized positions and averaging over valid positions in the evaluation window.
 
         Args:
             pred_pos_norm: Predicted normalized positions [batch_size, horizon_seq_len, 3]
             target_pos_norm: Target normalized positions [batch_size, horizon_seq_len, 3]
-            target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            eval_len: Number of valid evaluation steps per sample [batch_size]
 
         Returns:
             Scalar loss value
         """
         # 1. Create active mask (False for padded positions)
-        active_mask = ~target_pad_mask  # [B, H]
+        H = pred_pos_norm.size(1)
+        active_mask = length_to_mask(eval_len, H)  # [B, H]
         if not active_mask.any():
             return torch.tensor(0.0, device=pred_pos_norm.device, requires_grad=True)
 
