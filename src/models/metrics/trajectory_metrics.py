@@ -51,19 +51,19 @@ class TrajectoryMetrics:
         Args:
             pred_pos_abs: Predicted absolute positions [B, H, 3].
             target_pos_abs: Target absolute positions [B, H, 3].
-            lengths: TrajectoryLengths with pred_valid_len, target_valid_len, eval_len.
+            lengths: TrajectoryLengths with pred_valid_len, target_valid_len.
             pred_rtd: Predicted RTD per trajectory [B].
             target_rtd: Target RTD per trajectory [B].
             flight_id: Optional list of B flight ID strings.
         """
         H = pred_pos_abs.size(1)
-        eval_mask = length_to_mask(lengths.eval_len, H)  # [B, H]
-        has_valid = eval_mask.any(dim=1)                  # [B]
+        target_valid_mask = length_to_mask(lengths.target_valid_len, H)  # [B, H]
+        has_valid = target_valid_mask.any(dim=1)                  # [B]
 
-        self.displacement.update(pred_pos_abs, target_pos_abs, eval_mask, lengths.pred_valid_len, lengths.target_valid_len)
-        self.position.update(pred_pos_abs, target_pos_abs, eval_mask)
+        self.displacement.update(pred_pos_abs, target_pos_abs, target_valid_mask, lengths.pred_valid_len, lengths.target_valid_len)
+        self.position.update(pred_pos_abs, target_pos_abs, target_valid_mask)
         self.rtd.update(pred_rtd, target_rtd, has_valid)
-        self.horizon.update(pred_pos_abs, target_pos_abs, eval_mask)
+        self.horizon.update(pred_pos_abs, target_pos_abs, target_valid_mask)
 
         if flight_id is not None:
             has_valid_list = has_valid.tolist()

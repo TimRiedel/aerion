@@ -95,7 +95,7 @@ class CompositeApproachLoss(nn.Module):
             pred_pos_norm: Predicted normalized positions [B, H, 3]
             target_pos_norm: Target normalized positions [B, H, 3]
             pred_deltas_abs: Predicted deltas in meters [B, H, 3]
-            lengths: TrajectoryLengths with pred_valid_len, target_valid_len, eval_len
+            lengths: TrajectoryLengths with pred_valid_len, target_valid_len
             pred_rtd: Predicted remaining track distance [B]
             target_rtd: Target remaining track distance [B]
             runway: RunwayData or dict-like with "xyz" and "bearing" (sin, cos)
@@ -107,13 +107,13 @@ class CompositeApproachLoss(nn.Module):
         losses = []
         for name in self.enabled_losses:
             if name == "ade":
-                losses.append(self.ade_loss(pred_pos_norm, target_pos_norm, lengths.eval_len))
+                losses.append(self.ade_loss(pred_pos_norm, target_pos_norm, lengths.target_valid_len))
             if name == "fde":
                 losses.append(self.fde_loss(pred_pos_norm, target_pos_norm, lengths.pred_valid_len, lengths.target_valid_len))
             if name == "rtd":
                 losses.append(self.rtd_loss(pred_rtd, target_rtd))
             if name == "altitude":
-                losses.append(self.altitude_loss(pred_pos_norm, target_pos_norm, lengths.eval_len))
+                losses.append(self.altitude_loss(pred_pos_norm, target_pos_norm, lengths.target_valid_len))
             if name == "localizer":
                 losses.append(self.localizer_loss(pred_pos_abs, target_pos_abs, lengths.pred_valid_len, runway))
             if name == "glideslope":

@@ -11,11 +11,9 @@ class TrajectoryLengths:
     scalar-per-sample lengths. Losses and metrics receive only the length(s) they need.
     - pred_valid_len: How many steps of the predicted trajectory are valid (not ended)
     - target_valid_len: How many steps of the target trajectory are valid (not padded)
-    - eval_len: The length to use for evaluation, typically max(pred_valid_len, target_valid_len).
     """
     pred_valid_len: torch.Tensor    # [B] number of valid prediction steps
     target_valid_len: torch.Tensor  # [B] number of valid target steps
-    eval_len: torch.Tensor          # [B] max(pred_valid_len, target_valid_len)
 
 
 def length_to_mask(length: torch.Tensor, max_len: int) -> torch.Tensor:
@@ -31,13 +29,10 @@ def length_to_mask(length: torch.Tensor, max_len: int) -> torch.Tensor:
     return torch.arange(max_len, device=length.device).unsqueeze(0) < length.unsqueeze(1)
 
 
-DEFAULT_ARRIVAL_THRESHOLD_M = 750.0  # Default: end trajectory when within 750m of the runway threshold
-
-
 def compute_pred_valid_len(
     pred_pos_abs: torch.Tensor,
     runway_xy: torch.Tensor,
-    arrival_threshold_m: float = DEFAULT_ARRIVAL_THRESHOLD_M,
+    arrival_threshold_m: float,
 ) -> torch.Tensor:
     """Determine where each predicted trajectory has arrived at the runway threshold.
 
@@ -67,7 +62,7 @@ def compute_trajectory_lengths(
     pred_pos_abs: torch.Tensor,
     runway_xy: torch.Tensor,
     target_pad_mask: torch.Tensor,
-    arrival_threshold_m: float = DEFAULT_ARRIVAL_THRESHOLD_M,
+    arrival_threshold_m: float = 750.0,
 ) -> TrajectoryLengths:
     """Compute all trajectory lengths from predicted positions and target padding.
 
@@ -78,16 +73,14 @@ def compute_trajectory_lengths(
         arrival_threshold_m: Distance threshold in meters to declare arrival
 
     Returns:
-        TrajectoryLengths with pred_valid_len, target_valid_len, eval_len
+        TrajectoryLengths with pred_valid_len, target_valid_len
     """
     pred_valid_len = compute_pred_valid_len(pred_pos_abs, runway_xy, arrival_threshold_m)
     target_valid_len = (~target_pad_mask).sum(dim=1)  # [B]
-    eval_len = torch.max(pred_valid_len, target_valid_len)  # [B]
 
     return TrajectoryLengths(
         pred_valid_len=pred_valid_len,
         target_valid_len=target_valid_len,
-        eval_len=eval_len,
     )
 
 
