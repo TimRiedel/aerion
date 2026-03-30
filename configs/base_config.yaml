@@ -18,6 +18,7 @@ execution:
   num_waypoints_to_predict: null
   num_trajectories_to_predict: null
   num_visualized_traj: 20
+  arrival_threshold_m: 750.0    # Distance to runway threshold (meters) to declare arrival
   multi_agent_prediction: false
   max_num_agents: 8
 

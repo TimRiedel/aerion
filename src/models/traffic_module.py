@@ -2,7 +2,7 @@ from typing import Any, Dict, List
 
 import torch
 
-from data.compute.trajectory import compute_rtd, reconstruct_positions_from_deltas
+from data.compute.trajectory import compute_rtd, compute_trajectory_lengths, reconstruct_positions_from_deltas
 from data.interface import RunwayData, PredictionSample
 from models.base_module import BaseModule
 from models.metrics import TrajectoryMetrics
@@ -39,26 +39,28 @@ class TrafficModule(BaseModule):
         valid_agent_count = flattened_batch["valid_agent_count"]
 
         pred_deltas_abs = self.feature_schema.denormalize_deltas(pred_deltas_norm)
-        pred_pos_abs = reconstruct_positions_from_deltas(input_pos_abs, pred_deltas_abs, target_pad_mask)
+        pred_pos_abs = reconstruct_positions_from_deltas(input_pos_abs, pred_deltas_abs)
         pred_pos_norm = self.feature_schema.normalize_positions(pred_pos_abs)
         target_pos_norm = self.feature_schema.normalize_positions(target_pos_abs)
 
+        lengths = compute_trajectory_lengths(pred_pos_abs, runway.xyz[:, :2], target_pad_mask, self.arrival_threshold_m)
+
         # We use the raw cumulative trajectory distance for the loss, but for the metrics we add the distance to the threshold to get the RTD.
-        pred_traj_distance, pred_rtd = compute_rtd(pred_pos_abs, target_pad_mask, runway.xyz, runway.bearing)
-        
-        loss, loss_info = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, pred_deltas_abs, target_pad_mask, pred_traj_distance, target_rtd, runway)
+        pred_traj_distance, pred_rtd = compute_rtd(pred_pos_abs, lengths.pred_valid_len, runway.xyz, runway.bearing)
+
+        loss, loss_info = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, pred_deltas_abs, lengths, pred_traj_distance, target_rtd, runway)
         self._log_loss(loss, loss_info, prefix=prefix, batch_size=valid_agent_count)
 
         metrics.update(
             pred_pos_abs=pred_pos_abs,
             target_pos_abs=target_pos_abs,
-            target_pad_mask=target_pad_mask,
+            lengths=lengths,
             pred_rtd=pred_rtd,
             target_rtd=target_rtd,
             flight_id=flight_id,
         )
         self._plot_prediction_vs_target(
-            input_pos_abs, target_pos_abs, pred_pos_abs, target_pad_mask, batch_idx, flight_id, target_rtd, pred_rtd,
+            input_pos_abs, target_pos_abs, pred_pos_abs, lengths, batch_idx, flight_id, target_rtd, pred_rtd,
             prefix=prefix, num_trajectories=num_trajectories_plotting
         )
         

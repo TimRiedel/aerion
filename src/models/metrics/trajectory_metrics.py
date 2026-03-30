@@ -4,6 +4,7 @@ from typing import Optional  # used for flight_id kwarg
 import pandas as pd
 import torch
 
+from data.compute.trajectory import TrajectoryLengths, length_to_mask
 from models.metrics.displacement_metrics import DisplacementMetrics, DisplacementResult
 from models.metrics.horizon_metrics import HorizonMetrics, HorizonResult
 from models.metrics.position_metrics import PositionMetrics, PositionResult
@@ -39,7 +40,7 @@ class TrajectoryMetrics:
         self,
         pred_pos_abs: torch.Tensor,
         target_pos_abs: torch.Tensor,
-        target_pad_mask: torch.Tensor,
+        lengths: TrajectoryLengths,
         pred_rtd: torch.Tensor,
         target_rtd: torch.Tensor,
         flight_id: Optional[list[str]] = None,
@@ -50,18 +51,19 @@ class TrajectoryMetrics:
         Args:
             pred_pos_abs: Predicted absolute positions [B, H, 3].
             target_pos_abs: Target absolute positions [B, H, 3].
-            target_pad_mask: Padding mask [B, H], True for padded (invalid) waypoints.
+            lengths: TrajectoryLengths with pred_valid_len, target_valid_len, eval_len.
             pred_rtd: Predicted RTD per trajectory [B].
             target_rtd: Target RTD per trajectory [B].
             flight_id: Optional list of B flight ID strings.
         """
-        valid_mask = ~target_pad_mask           # [B, H]
-        has_valid = valid_mask.any(dim=1)       # [B]
+        H = pred_pos_abs.size(1)
+        eval_mask = length_to_mask(lengths.eval_len, H)  # [B, H]
+        has_valid = eval_mask.any(dim=1)                  # [B]
 
-        self.displacement.update(pred_pos_abs, target_pos_abs, valid_mask)
-        self.position.update(pred_pos_abs, target_pos_abs, valid_mask)
+        self.displacement.update(pred_pos_abs, target_pos_abs, eval_mask, lengths.pred_valid_len, lengths.target_valid_len)
+        self.position.update(pred_pos_abs, target_pos_abs, eval_mask)
         self.rtd.update(pred_rtd, target_rtd, has_valid)
-        self.horizon.update(pred_pos_abs, target_pos_abs, valid_mask)
+        self.horizon.update(pred_pos_abs, target_pos_abs, eval_mask)
 
         if flight_id is not None:
             has_valid_list = has_valid.tolist()

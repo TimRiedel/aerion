@@ -13,6 +13,7 @@ from PIL import Image
 from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
+from data.compute.trajectory import TrajectoryLengths
 from data.features import FeatureSchema
 from data.interface import RunwayData
 from models.losses import CompositeApproachLoss
@@ -31,6 +32,7 @@ class BaseModule(pl.LightningModule):
         feature_schema: FeatureSchema,
         scheduler_cfg: DictConfig = None,
         num_visualized_traj: int = 10,
+        arrival_threshold_m: float = 750.0,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["datamodule"])
@@ -41,6 +43,7 @@ class BaseModule(pl.LightningModule):
         self.horizon_seq_len = horizon_seq_len
         self.feature_schema = feature_schema
         self.num_visualized_traj = num_visualized_traj
+        self.arrival_threshold_m = arrival_threshold_m
 
         self.loss = CompositeApproachLoss(loss_configs=loss_cfg)
 
@@ -222,7 +225,7 @@ class BaseModule(pl.LightningModule):
         input_pos_abs: torch.Tensor,
         target_pos_abs: torch.Tensor,
         pred_pos_abs: torch.Tensor,
-        target_pad_mask: torch.Tensor,
+        lengths: TrajectoryLengths,
         batch_idx: int,
         flight_id: str = None,
         target_rtd: float = None,
@@ -237,7 +240,7 @@ class BaseModule(pl.LightningModule):
             input_pos_abs: Input absolute positions [batch_size, input_seq_len, 3]
             target_pos_abs: Target absolute positions [batch_size, horizon_seq_len, 3]
             pred_pos_abs: Predicted absolute positions [batch_size, horizon_seq_len, 3]
-            target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            lengths: TrajectoryLengths with pred_valid_len and target_valid_len
             batch_idx: Batch index
             flight_id: Flight ID [batch_size]
             target_rtd: Target RTD in meters [batch_size]
@@ -255,12 +258,13 @@ class BaseModule(pl.LightningModule):
             input_abs_i = input_pos_abs[i].detach().cpu().float().numpy()
             target_abs_i = target_pos_abs[i].detach().cpu().float().numpy()
             pred_abs_i = pred_pos_abs[i].detach().cpu().float().numpy()
-            target_pad_mask_i = target_pad_mask[i].detach().cpu().numpy()
+            target_valid_len_i = int(lengths.target_valid_len[i].item())
+            pred_valid_len_i = int(lengths.pred_valid_len[i].item())
             target_rtd_i = target_rtd[i].detach().cpu().float().numpy()
             pred_rtd_i = pred_rtd[i].detach().cpu().float().numpy()
             flight_id_i = flight_id[i]
 
-            fig, _ = plot_predictions_targets(input_abs_i, target_abs_i, pred_abs_i, target_pad_mask_i, "EDDB", flight_id_i, target_rtd_i, pred_rtd_i)
+            fig, _ = plot_predictions_targets(input_abs_i, target_abs_i, pred_abs_i, target_valid_len_i, pred_valid_len_i, "EDDB", flight_id_i, target_rtd_i, pred_rtd_i)
             self.logger.experiment.log({
                 f"{prefix}-predictions-targets/batch_{batch_idx}_traj_{num_plotted_trajectories}": self.fig_to_wandb_image(fig)
             })

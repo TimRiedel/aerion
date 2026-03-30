@@ -8,7 +8,8 @@ from torch.utils.data import Dataset
 
 from data.compute import compute_rtd, construct_runway_features
 from data.features import FeatureSchema
-from data.interface import RunwayData, PredictionSample, TrajectoryData
+from data.interface import PredictionSample, RunwayData, TrajectoryData
+
 
 class BaseDataset(Dataset):
     def __init__(
@@ -86,7 +87,14 @@ class BaseDataset(Dataset):
         trajectory = TrajectoryData(encoder_in=input_traj, dec_in=dec_in_traj, target=target_traj)
 
         # Because target trajectories end at the runway threshold, the RTD is the same as the trajectory distance and we can ignore the second return value.
-        target_rtd, _ = compute_rtd(xyz_positions.target, target_padding_mask, runway_data.xyz, runway_data.bearing)
+        target_valid_len = (~target_padding_mask).sum()
+        target_rtd, _ = compute_rtd(
+            xyz_positions.target.unsqueeze(0),
+            target_valid_len.unsqueeze(0),
+            runway_data.xyz.unsqueeze(0),
+            runway_data.bearing.unsqueeze(0),
+        )
+        target_rtd = target_rtd.squeeze(0)
 
         return PredictionSample(
             xyz_positions=xyz_positions,

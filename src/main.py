@@ -22,6 +22,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     execution_cfg = cfg.get("execution", {})
     num_trajectories_to_predict = execution_cfg.get("num_trajectories_to_predict", None)
     num_visualized_traj = execution_cfg.get("num_visualized_traj", 10)
+    arrival_threshold_m = execution_cfg.get("arrival_threshold_m", 750.0)
     multi_agent_prediction = execution_cfg.get("multi_agent_prediction", False)
     dataset_max_num_agents = execution_cfg.get("max_num_agents", None)
 
@@ -60,6 +61,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             feature_schema=feature_schema,
             scheduler_cfg=cfg.get("scheduler", None),
             num_visualized_traj=num_visualized_traj,
+            arrival_threshold_m=arrival_threshold_m,
         )
     else:
         data = ApproachData(
@@ -81,6 +83,7 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             feature_schema=feature_schema,
             scheduler_cfg=cfg.get("scheduler", None),
             num_visualized_traj=num_visualized_traj,
+            arrival_threshold_m=arrival_threshold_m,
         )
     
     log_important_parameters(cfg, input_seq_len, horizon_seq_len, max_num_agents)
