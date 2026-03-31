@@ -32,7 +32,9 @@ class BaseModule(pl.LightningModule):
         feature_schema: FeatureSchema,
         scheduler_cfg: DictConfig = None,
         num_visualized_traj: int = 10,
-        arrival_threshold_m: float = 750.0,
+        delta_epsilon: float = 1100.0,
+        terminal_area_m: float = 5000.0,
+        min_consecutive_steps: int = 3,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["datamodule"])
@@ -43,7 +45,9 @@ class BaseModule(pl.LightningModule):
         self.horizon_seq_len = horizon_seq_len
         self.feature_schema = feature_schema
         self.num_visualized_traj = num_visualized_traj
-        self.arrival_threshold_m = arrival_threshold_m
+        self.delta_epsilon = delta_epsilon
+        self.terminal_area_m = terminal_area_m
+        self.min_consecutive_steps = min_consecutive_steps
 
         self.loss = CompositeApproachLoss(loss_configs=loss_cfg)
 

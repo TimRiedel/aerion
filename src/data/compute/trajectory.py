@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import torch
+import torch.nn.functional as F
 
 
 @dataclass
@@ -30,58 +31,124 @@ def length_to_mask(length: torch.Tensor, max_len: int) -> torch.Tensor:
 
 
 def compute_pred_valid_len(
-    pred_pos_abs: torch.Tensor,
-    runway_xy: torch.Tensor,
-    arrival_threshold_m: float,
+    pred_deltas_abs: torch.Tensor,    # [B, H, 3]
+    pred_pos_abs: torch.Tensor,       # [B, H, 3]
+    runway_xy: torch.Tensor,          # [B, 2]
+    delta_epsilon: float = 1100.0,    # ~70 knots (logical flight speed floor)
+    terminal_area_m: float = 5000.0,  # short-final boundary radius in meters
+    min_consecutive_steps: int = 3,   # steps below delta_epsilon required to trigger
 ) -> torch.Tensor:
-    """Determine where each predicted trajectory has arrived at the runway threshold.
+    """Determine where each predicted trajectory has ended.
 
-    A prediction is considered ended at step t if the 2D distance to the runway
-    threshold first drops below arrival_threshold_m.
+    A prediction is considered ended at step t if either of two triggers fires
+    while the aircraft is within the terminal area (``terminal_area_m`` of the runway):
+
+    - **Monotonicity trigger**: The 2D distance to the runway starts *increasing*
+      (i.e. the aircraft has passed the threshold and is moving away).
+    - **Delta-floor trigger**: ``min_consecutive_steps`` consecutive steps all have
+      a 2D speed below ``delta_epsilon`` (model has effectively stopped predicting
+      meaningful motion).
+
+    Requiring proximity to the runway prevents spurious end-detection far from the
+    airport (e.g. early in training when the model outputs near-zero deltas).
 
     Args:
+        pred_deltas_abs: Predicted absolute position deltas [B, H, 3] (dx, dy, dalt)
         pred_pos_abs: Predicted absolute positions [B, H, 3] (x, y, altitude)
         runway_xy: Runway threshold XY position [B, 2]
-        arrival_threshold_m: Distance threshold in meters to declare arrival
+        delta_epsilon: Speed threshold in m/step below which a step counts as
+            "stopped" (default 1100.0 ≈ 70 knots at 30-second intervals)
+        terminal_area_m: Radius around the runway threshold that defines the
+            short-final zone; triggers are only active inside this zone (default 5000.0 m)
+        min_consecutive_steps: Number of consecutive sub-epsilon steps required for
+            the delta-floor trigger to fire (default 3)
 
     Returns:
-        pred_valid_len: [B] number of valid prediction steps per sample
+        pred_valid_len: [B] number of valid prediction steps per sample; equals
+            ``first_arrival_idx + 1`` if a trigger fired, else the full horizon H
     """
     B, H, _ = pred_pos_abs.shape
+    device = pred_pos_abs.device
+
+    # 1. Compute 2D distance to threshold
     dist_to_runway = torch.norm(pred_pos_abs[:, :, :2] - runway_xy.unsqueeze(1), dim=-1)  # [B, H]
-    arrived = dist_to_runway < arrival_threshold_m  # [B, H]
-    has_arrived = arrived.any(dim=1)  # [B]
-    first_arrival = arrived.float().argmax(dim=1)  # [B]
-    pred_valid_len = torch.where(
-        has_arrived, first_arrival, torch.tensor(H, device=pred_pos_abs.device)
+
+    # 2. Trigger: Monotonicity (distance starts increasing while inside terminal area)
+    dist_increased = torch.zeros((B, H), device=device, dtype=torch.bool)
+    dist_increased[:, 1:] = dist_to_runway[:, 1:] > dist_to_runway[:, :-1]
+    arrived_monotonic = (dist_to_runway < terminal_area_m) & dist_increased
+
+    # 3. Trigger: Delta Floor (min_consecutive_steps consecutive steps below delta_epsilon)
+    speed_2d = torch.norm(pred_deltas_abs[:, :, :2], dim=-1)  # [B, H]
+    below_epsilon = (speed_2d < delta_epsilon).float()  # [B, H]
+
+    # Use 1D convolution to count consecutive sub-epsilon steps
+    if H >= min_consecutive_steps:
+        kernel = torch.ones(1, 1, min_consecutive_steps, device=device)
+        # Shape: [B, H - min_consecutive_steps + 1]
+        consecutive_sum = F.conv1d(below_epsilon.unsqueeze(1), kernel).squeeze(1)
+        has_consecutive = consecutive_sum >= min_consecutive_steps
+
+        # Pad back to length H so indices align with pred_pos_abs.
+        # Padding at the end: a run starting at step t is detected at step t.
+        consecutive_trigger = F.pad(has_consecutive, (0, min_consecutive_steps - 1), value=False)
+    else:
+        consecutive_trigger = torch.zeros_like(below_epsilon, dtype=torch.bool)
+
+    arrived_delta = (dist_to_runway < terminal_area_m) & consecutive_trigger
+
+    # 4. Combine triggers and find first arrival step
+    any_arrival_mask = arrived_monotonic | arrived_delta
+    has_arrived = any_arrival_mask.any(dim=1)
+
+    # argmax returns the first index where True occurs
+    first_arrival_idx = any_arrival_mask.float().argmax(dim=1)
+
+    # If arrived, valid length = first arrival index + 1; otherwise full horizon H.
+    return torch.where(
+        has_arrived,
+        first_arrival_idx + 1,
+        torch.tensor(H, device=device),
     )
-    return pred_valid_len
 
 
 def compute_trajectory_lengths(
+    pred_deltas_abs: torch.Tensor,
     pred_pos_abs: torch.Tensor,
     runway_xy: torch.Tensor,
     target_pad_mask: torch.Tensor,
-    arrival_threshold_m: float = 750.0,
+    delta_epsilon: float = 1100.0,
+    terminal_area_m: float = 5000.0,
+    min_consecutive_steps: int = 3,
 ) -> TrajectoryLengths:
-    """Compute all trajectory lengths from predicted positions and target padding.
+    """Compute pred and target valid lengths and return them as a :class:`TrajectoryLengths`.
 
     Args:
+        pred_deltas_abs: Predicted absolute position deltas [B, H, 3]
         pred_pos_abs: Predicted absolute positions [B, H, 3]
         runway_xy: Runway threshold XY position [B, 2]
-        target_pad_mask: Target padding mask [B, H] (True = padded)
-        arrival_threshold_m: Distance threshold in meters to declare arrival
+        target_pad_mask: Boolean padding mask for target sequence [B, H],
+            True = padded (invalid) position
+        delta_epsilon: Speed threshold for the delta-floor trigger (m/step)
+        terminal_area_m: Terminal area radius around the runway (m)
+        min_consecutive_steps: Consecutive sub-epsilon steps to trigger end detection
 
     Returns:
-        TrajectoryLengths with pred_valid_len, target_valid_len
+        TrajectoryLengths with pred_valid_len and target_valid_len [B] each
     """
-    pred_valid_len = compute_pred_valid_len(pred_pos_abs, runway_xy, arrival_threshold_m)
-    target_valid_len = (~target_pad_mask).sum(dim=1)  # [B]
-
-    return TrajectoryLengths(
-        pred_valid_len=pred_valid_len,
-        target_valid_len=target_valid_len,
+    pred_valid_len = compute_pred_valid_len(
+        pred_deltas_abs,
+        pred_pos_abs,
+        runway_xy,
+        delta_epsilon=delta_epsilon,
+        terminal_area_m=terminal_area_m,
+        min_consecutive_steps=min_consecutive_steps,
     )
+
+    # target_pad_mask: True = padded; valid length = number of non-padded steps
+    target_valid_len = (~target_pad_mask).sum(dim=1)
+
+    return TrajectoryLengths(pred_valid_len=pred_valid_len, target_valid_len=target_valid_len)
 
 
 def reconstruct_positions_from_deltas(

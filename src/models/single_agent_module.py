@@ -33,7 +33,7 @@ class SingleAgentModule(BaseModule):
         pred_pos_norm = self.feature_schema.normalize_positions(pred_pos_abs)
         target_pos_norm = self.feature_schema.normalize_positions(target_pos_abs)
 
-        lengths = compute_trajectory_lengths(pred_pos_abs, runway.xyz[:, :2], target_pad_mask, self.arrival_threshold_m)
+        lengths = compute_trajectory_lengths(pred_deltas_abs, pred_pos_abs, runway.xyz[:, :2], target_pad_mask, self.delta_epsilon, self.terminal_area_m, self.min_consecutive_steps)
 
         # We use the raw cumulative trajectory distance for the loss, but for the metrics we add the distance to the threshold to get the RTD.
         pred_traj_distance, pred_rtd = compute_rtd(pred_pos_abs, lengths.pred_valid_len, runway.xyz, runway.bearing)
