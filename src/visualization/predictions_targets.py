@@ -17,6 +17,7 @@ def plot_predictions_targets(
     target_rtd: float = None,
     pred_rtd: float = None,
     cmap: str = "viridis",
+    show_waypoints: bool = True,
 ):
     """
     Plot prediction vs groundtruth in X/Y space (km) with altitude profile below.
@@ -91,6 +92,12 @@ def plot_predictions_targets(
     ax_xy.plot(target_x_connected, target_y_connected, color=target_color, linewidth=linewidth, label='Target', zorder=3)
     ax_xy.plot(pred_x_connected, pred_y_connected, color=pred_color, linewidth=linewidth, label='Prediction', zorder=3)
 
+    if show_waypoints:
+        dot_size = (linewidth + 1.5) ** 2
+        ax_xy.scatter(input_x_km, input_y_km, color=input_color, s=dot_size, zorder=4)
+        ax_xy.scatter(target_x_connected, target_y_connected, color=target_color, s=dot_size, zorder=4)
+        ax_xy.scatter(pred_x_connected, pred_y_connected, color=pred_color, s=dot_size, zorder=4)
+
     # Draw dashed line from the last predicted point to the last target point (runway threshold),
     # making the implied remaining distance included in pred_rtd visible in the plot.
     threshold_x_km = target_x_km[-1]
@@ -117,6 +124,12 @@ def plot_predictions_targets(
     ax_alt.plot(input_steps, input_alt, color=input_color, linewidth=linewidth, label='Input')
     ax_alt.plot(target_steps, target_alt_connected, color=target_color, linewidth=linewidth, label='Target')
     ax_alt.plot(pred_steps, pred_alt_connected, color=pred_color, linewidth=linewidth, label='Prediction')
+
+    if show_waypoints:
+        dot_size = (linewidth + 1.5) ** 2
+        ax_alt.scatter(input_steps, input_alt, color=input_color, s=dot_size, zorder=4)
+        ax_alt.scatter(target_steps, target_alt_connected, color=target_color, s=dot_size, zorder=4)
+        ax_alt.scatter(pred_steps, pred_alt_connected, color=pred_color, s=dot_size, zorder=4)
 
     horizon_len = max(target_valid_len, pred_valid_len)
     ax_alt = set_altitude_axis_config(ax_alt, input_len, horizon_len)
