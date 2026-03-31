@@ -109,17 +109,17 @@ class CompositeApproachLoss(nn.Module):
             if name == "ade":
                 losses.append(self.ade_loss(pred_pos_norm, target_pos_norm, lengths.target_valid_len))
             if name == "fde":
-                losses.append(self.fde_loss(pred_pos_norm, target_pos_norm, lengths.pred_valid_len, lengths.target_valid_len))
+                losses.append(self.fde_loss(pred_pos_norm, target_pos_norm, lengths.target_valid_len))
             if name == "rtd":
                 losses.append(self.rtd_loss(pred_rtd, target_rtd))
             if name == "altitude":
                 losses.append(self.altitude_loss(pred_pos_norm, target_pos_norm, lengths.target_valid_len))
             if name == "localizer":
-                losses.append(self.localizer_loss(pred_pos_abs, target_pos_abs, lengths.pred_valid_len, runway))
+                losses.append(self.localizer_loss(pred_pos_abs, target_pos_abs, lengths.target_valid_len, runway))
             if name == "glideslope":
-                losses.append(self.glideslope_loss(pred_pos_abs, target_pos_abs, lengths.pred_valid_len, runway))
+                losses.append(self.glideslope_loss(pred_pos_abs, target_pos_abs, lengths.target_valid_len, runway))
             if name == "turn_rate":
-                losses.append(self.turn_rate_loss(pred_deltas_abs, lengths.pred_valid_len))
+                losses.append(self.turn_rate_loss(pred_deltas_abs, lengths.target_valid_len))
 
         task_losses = torch.stack(losses)
         weights = torch.exp(-self.log_vars)

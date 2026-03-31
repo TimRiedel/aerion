@@ -37,18 +37,18 @@ class TurnRateLoss(nn.Module):
     def forward(
         self,
         pred_deltas_abs: torch.Tensor,
-        pred_valid_len: torch.Tensor,
+        target_valid_len: torch.Tensor,
     ) -> torch.Tensor:
         """
         Args:
             pred_deltas_abs: Predicted deltas in meters [B, H, 3] (dx, dy, dalt).
-            pred_valid_len: Number of valid prediction steps per sample [B].
+            target_valid_len: Number of valid target steps per sample [B].
 
         Returns:
             Scalar loss: mean ReLU(actual_turn_rate - max_turn_rate) over valid steps.
         """
         H = pred_deltas_abs.size(1)
-        pred_pad_mask = ~length_to_mask(pred_valid_len, H)  # [B, H] True = padded
+        pred_pad_mask = ~length_to_mask(target_valid_len, H)  # [B, H] True = padded
 
         dx = pred_deltas_abs[..., 0]  # [B, H]
         dy = pred_deltas_abs[..., 1]  # [B, H]

@@ -12,9 +12,14 @@ class TrajectoryLengths:
     scalar-per-sample lengths. Losses and metrics receive only the length(s) they need.
     - pred_valid_len: How many steps of the predicted trajectory are valid (not ended)
     - target_valid_len: How many steps of the target trajectory are valid (not padded)
+    - eval_valid_len: min(pred_valid_len, target_valid_len) — for displacement/position/horizon metrics
     """
     pred_valid_len: torch.Tensor    # [B] number of valid prediction steps
     target_valid_len: torch.Tensor  # [B] number of valid target steps
+
+    @property
+    def eval_valid_len(self) -> torch.Tensor:
+        return torch.minimum(self.pred_valid_len, self.target_valid_len)
 
 
 def length_to_mask(length: torch.Tensor, max_len: int) -> torch.Tensor:

@@ -57,13 +57,14 @@ class TrajectoryMetrics:
             flight_id: Optional list of B flight ID strings.
         """
         H = pred_pos_abs.size(1)
-        target_valid_mask = length_to_mask(lengths.target_valid_len, H)  # [B, H]
-        has_valid = target_valid_mask.any(dim=1)                  # [B]
+        eval_valid_mask = length_to_mask(lengths.eval_valid_len, H)      # [B, H] min(pred, target)
+        target_valid_mask = length_to_mask(lengths.target_valid_len, H)  # [B, H] for has_valid gate only
+        has_valid = target_valid_mask.any(dim=1)                         # [B]
 
-        self.displacement.update(pred_pos_abs, target_pos_abs, target_valid_mask, lengths.pred_valid_len, lengths.target_valid_len)
-        self.position.update(pred_pos_abs, target_pos_abs, target_valid_mask)
+        self.displacement.update(pred_pos_abs, target_pos_abs, eval_valid_mask, lengths.pred_valid_len, lengths.target_valid_len)
+        self.position.update(pred_pos_abs, target_pos_abs, eval_valid_mask)
         self.rtd.update(pred_rtd, target_rtd, has_valid)
-        self.horizon.update(pred_pos_abs, target_pos_abs, target_valid_mask)
+        self.horizon.update(pred_pos_abs, target_pos_abs, eval_valid_mask)
 
         if flight_id is not None:
             has_valid_list = has_valid.tolist()

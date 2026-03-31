@@ -117,7 +117,7 @@ class LocalizerAlignmentLoss(nn.Module):
         self,
         pred_pos_abs: torch.Tensor,
         target_pos_abs: torch.Tensor,
-        pred_valid_len: torch.Tensor,
+        target_valid_len: torch.Tensor,
         runway: dict,
     ) -> torch.Tensor:
         """
@@ -126,7 +126,7 @@ class LocalizerAlignmentLoss(nn.Module):
         Args:
             pred_pos_abs: Predicted absolute positions [B, H, 3] (x, y, altitude in meters)
             target_pos_abs: Target absolute positions [B, H, 3] (not used, kept for API consistency)
-            pred_valid_len: Number of valid prediction steps per sample [B]
+            target_valid_len: Number of valid target steps per sample [B]
             runway: RunwayData object containing:
                 - bearing: tensor [B, 2] with [sin(bearing), cos(bearing)] for runway direction
                 - xyz: tensor [B, 3] with threshold position [x, y, altitude] in meters
@@ -141,7 +141,7 @@ class LocalizerAlignmentLoss(nn.Module):
         losses = []
 
         for b in range(pred_pos_abs.size(0)):
-            end_idx = pred_valid_len[b].item()
+            end_idx = target_valid_len[b].item()
             start_idx = max(0, end_idx - self.num_final_waypoints)
             N = end_idx - start_idx
 
@@ -242,7 +242,7 @@ class GlideslopeAlignmentLoss(nn.Module):
         self,
         pred_pos_abs: torch.Tensor,
         target_pos_abs: torch.Tensor,
-        pred_valid_len: torch.Tensor,
+        target_valid_len: torch.Tensor,
         runway: dict,
     ) -> torch.Tensor:
         """
@@ -251,7 +251,7 @@ class GlideslopeAlignmentLoss(nn.Module):
         Args:
             pred_pos_abs: Predicted absolute positions [B, H, 3] (x, y, altitude in meters)
             target_pos_abs: Target absolute positions [B, H, 3] (not used, kept for API consistency)
-            pred_valid_len: Number of valid prediction steps per sample [B]
+            target_valid_len: Number of valid target steps per sample [B]
             runway: RunwayData object containing:
                 - bearing: tensor [B, 2] with [sin(bearing), cos(bearing)] for runway direction
                 - xyz: tensor [B, 3] with threshold position [x, y, altitude] in meters
@@ -264,7 +264,7 @@ class GlideslopeAlignmentLoss(nn.Module):
         losses = []
 
         for b in range(pred_pos_abs.size(0)):
-            end_idx = pred_valid_len[b].item()
+            end_idx = target_valid_len[b].item()
             start_idx = max(0, end_idx - self.num_final_waypoints)
             N = end_idx - start_idx
 
