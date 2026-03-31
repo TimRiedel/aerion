@@ -38,7 +38,7 @@ def compute_pred_valid_len(
     pred_deltas_abs: torch.Tensor,
     pred_pos_abs: torch.Tensor,
     runway_xy: torch.Tensor,
-    epsilon: float = 100.0,
+    epsilon: float = 1100.0,
     min_consecutive: int = 3,
 ) -> torch.Tensor:
     """Determine where each predicted trajectory has ended.
