@@ -8,6 +8,7 @@ encoder_inputs:
   - delta_xyz
   - distance_to_threshold_xy
   - distances_to_centerline_xy
+  - traffic_count_cosequenced
 
 decoder_inputs:
   - altitude

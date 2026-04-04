@@ -70,6 +70,12 @@ class BaseDataset(Dataset):
         if flight_id is None:
             flight_id = input_df["flight_id"].iloc[0]
 
+        additional_variables = {}
+        for col in self.feature_schema.required_df_cols:
+            if col not in self.position_cols and col in input_df.columns:
+                additional_variables[col] = torch.tensor(float(input_df[col].iloc[-1]), dtype=torch.float32)
+        additional_variables = additional_variables or None
+
         input_df = input_df[self.position_cols].head(self.input_seq_len)
         horizon_df = horizon_df[self.position_cols].head(self.horizon_seq_len)
 
@@ -81,9 +87,9 @@ class BaseDataset(Dataset):
         runway_data = self._get_runway_data(flight_id)
         last_input_pos_abs = xyz_positions.encoder_in[-1, :3]
 
-        input_traj = self.feature_schema.build_encoder_input(xyz_positions.encoder_in, xyz_deltas.encoder_in, runway_data)
-        dec_in_traj = self.feature_schema.build_decoder_input(xyz_positions.dec_in, xyz_deltas.dec_in, runway_data)
-        target_traj = self.feature_schema.build_target(xyz_positions.target, xyz_deltas.target, runway_data)
+        input_traj = self.feature_schema.build_encoder_input(xyz_positions.encoder_in, xyz_deltas.encoder_in, runway_data, additional_variables)
+        dec_in_traj = self.feature_schema.build_decoder_input(xyz_positions.dec_in, xyz_deltas.dec_in, runway_data, additional_variables)
+        target_traj = self.feature_schema.build_target(xyz_positions.target, xyz_deltas.target, runway_data, additional_variables)
         trajectory = TrajectoryData(encoder_in=input_traj, dec_in=dec_in_traj, target=target_traj)
 
         # Because target trajectories end at the runway threshold, the RTD is the same as the trajectory distance and we can ignore the second return value.

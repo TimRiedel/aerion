@@ -45,6 +45,7 @@ class FeatureGroup(ABC):
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         """
         Compute RAW (unnormalized) features from trajectory data.
@@ -54,6 +55,8 @@ class FeatureGroup(ABC):
             xyz_positions: absolute trajectory positions [T, 3]
             xyz_deltas: absolute trajectory deltas [T, 3]
             runway: RunwayData
+            additional_variables: optional dict of per-trajectory scalar tensors
+                extracted from the DataFrame (e.g. traffic_count_cosequenced).
 
         Returns:
             Feature tensor [T, width]
@@ -109,6 +112,7 @@ class XYPosition(FeatureGroup):
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         return xyz_positions[:, :2]
 
@@ -131,6 +135,7 @@ class Altitude(FeatureGroup):
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         return xyz_positions[:, 2:3]
 
@@ -153,6 +158,7 @@ class DeltaXYZ(FeatureGroup):
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         return xyz_deltas
 
@@ -175,6 +181,7 @@ class DistanceToThresholdXY(FeatureGroup):
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         threshold_xy = runway.xyz[:2]
         return get_distances_to_centerline(xyz_positions[:, :2], [threshold_xy])
@@ -205,6 +212,7 @@ class DistancesToCenterlineXY(FeatureGroup):
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         return get_distances_to_centerline(
             xyz_positions[:, :2], runway.centerline_points_xy
@@ -232,8 +240,13 @@ class TrafficCountCosequenced(FeatureGroup):
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
-        raise NotImplementedError("TrafficCountCosequenced.compute is not yet implemented.")
+        if additional_variables is None or "traffic_count_cosequenced" not in additional_variables:
+            raise ValueError("traffic_count_cosequenced requires additional_variables with key 'traffic_count_cosequenced'")
+        value = additional_variables["traffic_count_cosequenced"]
+        T = xyz_positions.shape[0]
+        return value.expand(T, 1)
 
     def build_next_decoder_input(
         self,
@@ -242,7 +255,7 @@ class TrafficCountCosequenced(FeatureGroup):
         runway: RunwayData,
     ) -> Tensor:
         raise NotImplementedError(
-            "build_next_decoder_input is not yet implemented for TrafficCountCosequenced."
+            "Cosequenced traffic count is an encoder feature group only. Adding it to the decoder is not supported."
         )
 
 

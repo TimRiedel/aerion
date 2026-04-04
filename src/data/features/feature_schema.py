@@ -81,10 +81,11 @@ class FeatureSchema:
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: dict[str, torch.Tensor] | None = None,
     ) -> Tensor:
         parts = []
         for group in groups:
-            parts.append(group.compute(xyz_positions, xyz_deltas, runway))
+            parts.append(group.compute(xyz_positions, xyz_deltas, runway, additional_variables))
         return torch.cat(parts, dim=-1)
 
     def build_encoder_input(
@@ -92,19 +93,27 @@ class FeatureSchema:
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: dict[str, torch.Tensor] | None = None,
     ) -> Tensor:
-        return self._concat_features(self.encoder_groups, xyz_positions, xyz_deltas, runway)
+        return self._concat_features(self.encoder_groups, xyz_positions, xyz_deltas, runway, additional_variables)
 
     def build_decoder_input(
         self,
         xyz_positions: torch.Tensor,
         xyz_deltas: torch.Tensor,
         runway: RunwayData,
+        additional_variables: dict[str, torch.Tensor] | None = None,
     ) -> Tensor:
-        return self._concat_features(self.decoder_groups, xyz_positions, xyz_deltas, runway)
+        return self._concat_features(self.decoder_groups, xyz_positions, xyz_deltas, runway, additional_variables)
 
-    def build_target(self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData) -> Tensor:
-        return self._concat_features(self.output_groups, xyz_positions, xyz_deltas, runway)
+    def build_target(
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        additional_variables: dict[str, torch.Tensor] | None = None,
+    ) -> Tensor:
+        return self._concat_features(self.output_groups, xyz_positions, xyz_deltas, runway, additional_variables)
 
 
     # ----- Data Normalization and Denormalization -----
