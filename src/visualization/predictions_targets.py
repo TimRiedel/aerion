@@ -54,6 +54,7 @@ def plot_predictions_targets(
     """
     linewidth = 1.5
     dpi = 120
+    dot_size = (linewidth + 0.5) ** 2
 
     target_traj = target_traj[:target_valid_len]
     pred_traj = pred_traj[:pred_valid_len]
@@ -90,12 +91,11 @@ def plot_predictions_targets(
 
     ax_xy.plot(input_x_km, input_y_km, color=input_color, linewidth=linewidth, label='Input', zorder=3)
     ax_xy.plot(target_x_connected, target_y_connected, color=target_color, linewidth=linewidth, label='Target', zorder=3)
-    ax_xy.plot(pred_x_connected, pred_y_connected, color=pred_color, linewidth=linewidth, label='Prediction', zorder=3)
+    ax_xy.plot(pred_x_connected, pred_y_connected, color=pred_color, linewidth=linewidth, label='Prediction', zorder=4)
 
     if show_waypoints:
-        dot_size = (linewidth + 1.5) ** 2
-        ax_xy.scatter(input_x_km, input_y_km, color=input_color, s=dot_size, zorder=4)
-        ax_xy.scatter(target_x_connected, target_y_connected, color=target_color, s=dot_size, zorder=4)
+        ax_xy.scatter(input_x_km, input_y_km, color=input_color, s=dot_size, zorder=3)
+        ax_xy.scatter(target_x_connected, target_y_connected, color=target_color, s=dot_size, zorder=3)
         ax_xy.scatter(pred_x_connected, pred_y_connected, color=pred_color, s=dot_size, zorder=4)
 
     # Draw dashed line from the last predicted point to the last target point (runway threshold),
@@ -105,7 +105,7 @@ def plot_predictions_targets(
     ax_xy.plot(
         [pred_x_km[-1], threshold_x_km],
         [pred_y_km[-1], threshold_y_km],
-        color=pred_color, linewidth=linewidth, linestyle='--', zorder=3,
+        color=pred_color, linewidth=linewidth, linestyle='--', zorder=4,
     )
 
     all_x_km = np.concatenate([input_x_km, target_x_km, pred_x_km])
@@ -126,9 +126,8 @@ def plot_predictions_targets(
     ax_alt.plot(pred_steps, pred_alt_connected, color=pred_color, linewidth=linewidth, label='Prediction')
 
     if show_waypoints:
-        dot_size = (linewidth + 1.5) ** 2
-        ax_alt.scatter(input_steps, input_alt, color=input_color, s=dot_size, zorder=4)
-        ax_alt.scatter(target_steps, target_alt_connected, color=target_color, s=dot_size, zorder=4)
+        ax_alt.scatter(input_steps, input_alt, color=input_color, s=dot_size, zorder=3)
+        ax_alt.scatter(target_steps, target_alt_connected, color=target_color, s=dot_size, zorder=3)
         ax_alt.scatter(pred_steps, pred_alt_connected, color=pred_color, s=dot_size, zorder=4)
 
     horizon_len = max(target_valid_len, pred_valid_len)
