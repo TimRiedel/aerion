@@ -4,6 +4,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from data.compute.trajectory import length_to_mask
+
 
 class TurnRateLoss(nn.Module):
     """
@@ -35,16 +37,19 @@ class TurnRateLoss(nn.Module):
     def forward(
         self,
         pred_deltas_abs: torch.Tensor,
-        target_pad_mask: torch.Tensor,
+        target_valid_len: torch.Tensor,
     ) -> torch.Tensor:
         """
         Args:
             pred_deltas_abs: Predicted deltas in meters [B, H, 3] (dx, dy, dalt).
-            target_pad_mask: Padding mask [B, H] (True = padded).
+            target_valid_len: Number of valid target steps per sample [B].
 
         Returns:
             Scalar loss: mean ReLU(actual_turn_rate - max_turn_rate) over valid steps.
         """
+        H = pred_deltas_abs.size(1)
+        pred_pad_mask = ~length_to_mask(target_valid_len, H)  # [B, H] True = padded
+
         dx = pred_deltas_abs[..., 0]  # [B, H]
         dy = pred_deltas_abs[..., 1]  # [B, H]
 
@@ -74,7 +79,7 @@ class TurnRateLoss(nn.Module):
         violation = F.relu(actual_turn_rate - max_turn_rate)  # [B, H-1]
 
         # Mask out padded waypoints: valid turn at i if both waypoint i and i+1 are valid
-        valid = (~target_pad_mask[:, :-1]) & (~target_pad_mask[:, 1:])  # [B, H-1]
+        valid = (~pred_pad_mask[:, :-1]) & (~pred_pad_mask[:, 1:])  # [B, H-1]
         if not valid.any():
             return torch.tensor(0.0, device=pred_deltas_abs.device)
 

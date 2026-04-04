@@ -10,26 +10,30 @@ def plot_predictions_targets(
     input_traj: np.ndarray,
     target_traj: np.ndarray,
     pred_traj: np.ndarray,
-    padding_mask: np.ndarray,
+    target_valid_len: int,
+    pred_valid_len: int,
     icao: str,
     flight_id: str = None,
     target_rtd: float = None,
     pred_rtd: float = None,
     cmap: str = "viridis",
+    show_waypoints: bool = True,
 ):
     """
     Plot prediction vs groundtruth in X/Y space (km) with altitude profile below.
-    
+
     Parameters:
     -----------
     input_traj : np.ndarray
         Input trajectory [input_seq_len, 3] (x, y, altitude in meters)
-    target_traj : np.ndarray  
+    target_traj : np.ndarray
         Target trajectory [horizon_seq_len, 3] (x, y, altitude in meters)
     pred_traj : np.ndarray
         Predicted trajectory [horizon_seq_len, 3] (x, y, altitude in meters)
-    padding_mask : np.ndarray
-        Padding mask [horizon_seq_len]
+    target_valid_len : int
+        Number of valid target waypoints
+    pred_valid_len : int
+        Number of valid prediction waypoints
     icao : str
         ICAO airport code for plotting runways
     flight_id : str
@@ -40,7 +44,7 @@ def plot_predictions_targets(
         Predicted RTD in meters
     cmap : str
         Colormap to use for the colors
-    
+
     Returns:
     --------
     fig : matplotlib.figure.Figure
@@ -50,10 +54,10 @@ def plot_predictions_targets(
     """
     linewidth = 1.5
     dpi = 120
-    
-    valid_mask = ~padding_mask  # Invert: True = valid
-    target_traj = target_traj[valid_mask]
-    pred_traj = pred_traj[valid_mask]
+    dot_size = (linewidth + 0.5) ** 2
+
+    target_traj = target_traj[:target_valid_len]
+    pred_traj = pred_traj[:pred_valid_len]
     
     # Convert to km for x/y plotting, altitude stays in meters
     input_x_km, input_y_km = input_traj[:, 0] / 1000, input_traj[:, 1] / 1000
@@ -87,23 +91,47 @@ def plot_predictions_targets(
 
     ax_xy.plot(input_x_km, input_y_km, color=input_color, linewidth=linewidth, label='Input', zorder=3)
     ax_xy.plot(target_x_connected, target_y_connected, color=target_color, linewidth=linewidth, label='Target', zorder=3)
-    ax_xy.plot(pred_x_connected, pred_y_connected, color=pred_color, linewidth=linewidth, label='Prediction', zorder=3)
-    
+    ax_xy.plot(pred_x_connected, pred_y_connected, color=pred_color, linewidth=linewidth, label='Prediction', zorder=4)
+
+    if show_waypoints:
+        ax_xy.scatter(input_x_km, input_y_km, color=input_color, s=dot_size, zorder=3)
+        ax_xy.scatter(target_x_connected, target_y_connected, color=target_color, s=dot_size, zorder=3)
+        ax_xy.scatter(pred_x_connected, pred_y_connected, color=pred_color, s=dot_size, zorder=4)
+
+    # Draw dashed line from the last predicted point to the last target point (runway threshold),
+    # making the implied remaining distance included in pred_rtd visible in the plot.
+    threshold_x_km = target_x_km[-1]
+    threshold_y_km = target_y_km[-1]
+    ax_xy.plot(
+        [pred_x_km[-1], threshold_x_km],
+        [pred_y_km[-1], threshold_y_km],
+        color=pred_color, linewidth=linewidth, linestyle='--', zorder=4,
+    )
+
     all_x_km = np.concatenate([input_x_km, target_x_km, pred_x_km])
     all_y_km = np.concatenate([input_y_km, target_y_km, pred_y_km])
     bounds_xy_km = compute_xy_bounds(all_x_km, all_y_km)
     ax_xy = set_xy_axis_config(ax_xy, bounds_xy_km)
 
     # Plot altitude profile
-    input_steps, target_steps, horizon_len = calculate_target_steps(input_alt, target_alt, padding_mask)
+    input_len = len(input_alt)
+    input_steps = np.arange(-input_len + 1, 1)
+    target_steps = np.arange(0, len(target_alt) + 1)  # Include connection point at 0
+    pred_steps = np.arange(0, len(pred_alt) + 1)      # Include connection point at 0
     target_alt_connected = np.concatenate([[input_alt[-1]], target_alt])
     pred_alt_connected = np.concatenate([[input_alt[-1]], pred_alt])
-    
+
     ax_alt.plot(input_steps, input_alt, color=input_color, linewidth=linewidth, label='Input')
     ax_alt.plot(target_steps, target_alt_connected, color=target_color, linewidth=linewidth, label='Target')
-    ax_alt.plot(target_steps, pred_alt_connected, color=pred_color, linewidth=linewidth, label='Prediction')
-    
-    ax_alt = set_altitude_axis_config(ax_alt, len(input_alt), horizon_len)
+    ax_alt.plot(pred_steps, pred_alt_connected, color=pred_color, linewidth=linewidth, label='Prediction')
+
+    if show_waypoints:
+        ax_alt.scatter(input_steps, input_alt, color=input_color, s=dot_size, zorder=3)
+        ax_alt.scatter(target_steps, target_alt_connected, color=target_color, s=dot_size, zorder=3)
+        ax_alt.scatter(pred_steps, pred_alt_connected, color=pred_color, s=dot_size, zorder=4)
+
+    horizon_len = max(target_valid_len, pred_valid_len)
+    ax_alt = set_altitude_axis_config(ax_alt, input_len, horizon_len)
     
     # Align the x-axis (left/right edges) of both plots
     pos_xy = ax_xy.get_position()
@@ -199,17 +227,6 @@ def set_title(fig, ax_ref, icao, flight_id, target_rtd=None, pred_rtd=None):
 
 
 
-def calculate_target_steps(input_feat, target_feat, padding_mask):
-    input_len = len(input_feat)
-    horizon_len = len(padding_mask)
-    valid_horizon_len = len(target_feat)  # Number of valid (non-padded) horizon points
-    
-    # Input steps go from -input_len+1 to 0
-    input_steps = np.arange(-input_len + 1, 1)
-    # Target steps start at 0 (to connect to last input point)
-    target_steps = np.arange(0, valid_horizon_len + 1)  # Include connection point at 0
-    
-    return input_steps, target_steps, horizon_len
 
 def compute_xy_bounds(x_km, y_km, buffer_percent=0.1):
     """Compute bounds for X/Y plot with buffer."""

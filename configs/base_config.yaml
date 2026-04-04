@@ -18,6 +18,9 @@ execution:
   num_waypoints_to_predict: null
   num_trajectories_to_predict: null
   num_visualized_traj: 20
+  terminal_area_m: 5000.0       # Radius around runway threshold defining the zone in which the trajectory is allowed to end
+  delta_epsilon: 1100.0         # Speed floor (m/step) for end-of-trajectory detection (~70 knots at 30 s intervals)
+  min_consecutive_steps: 3      # Consecutive sub-epsilon steps required to trigger the delta-floor end detector
   multi_agent_prediction: false
   max_num_agents: 8
 

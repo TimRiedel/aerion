@@ -22,6 +22,9 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
     execution_cfg = cfg.get("execution", {})
     num_trajectories_to_predict = execution_cfg.get("num_trajectories_to_predict", None)
     num_visualized_traj = execution_cfg.get("num_visualized_traj", 10)
+    delta_epsilon = execution_cfg.get("delta_epsilon", 1100.0)
+    terminal_area_m = execution_cfg.get("terminal_area_m", 5000.0)
+    min_consecutive_steps = execution_cfg.get("min_consecutive_steps", 3)
     multi_agent_prediction = execution_cfg.get("multi_agent_prediction", False)
     dataset_max_num_agents = execution_cfg.get("max_num_agents", None)
 
@@ -60,6 +63,9 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             feature_schema=feature_schema,
             scheduler_cfg=cfg.get("scheduler", None),
             num_visualized_traj=num_visualized_traj,
+            delta_epsilon=delta_epsilon,
+            terminal_area_m=terminal_area_m,
+            min_consecutive_steps=min_consecutive_steps,
         )
     else:
         data = ApproachData(
@@ -81,6 +87,9 @@ def train(cfg: DictConfig, input_seq_len: int, horizon_seq_len: int) -> None:
             feature_schema=feature_schema,
             scheduler_cfg=cfg.get("scheduler", None),
             num_visualized_traj=num_visualized_traj,
+            delta_epsilon=delta_epsilon,
+            terminal_area_m=terminal_area_m,
+            min_consecutive_steps=min_consecutive_steps,
         )
     
     log_important_parameters(cfg, input_seq_len, horizon_seq_len, max_num_agents)

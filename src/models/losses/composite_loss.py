@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 
+from data.compute.trajectory import TrajectoryLengths
+
 from .ade_loss import ADELoss
 from .altitude_loss import AltitudeLoss
 from .fde_loss import FDELoss
@@ -79,7 +81,7 @@ class CompositeApproachLoss(nn.Module):
         pred_pos_norm: torch.Tensor,
         target_pos_norm: torch.Tensor,
         pred_deltas_abs: torch.Tensor,
-        target_pad_mask: torch.Tensor,
+        lengths: TrajectoryLengths,
         pred_rtd: torch.Tensor,
         target_rtd: torch.Tensor,
         runway: dict,
@@ -93,7 +95,7 @@ class CompositeApproachLoss(nn.Module):
             pred_pos_norm: Predicted normalized positions [B, H, 3]
             target_pos_norm: Target normalized positions [B, H, 3]
             pred_deltas_abs: Predicted deltas in meters [B, H, 3]
-            target_pad_mask: Padding mask [B, H] (True for padded positions)
+            lengths: TrajectoryLengths with pred_valid_len, target_valid_len
             pred_rtd: Predicted remaining track distance [B]
             target_rtd: Target remaining track distance [B]
             runway: RunwayData or dict-like with "xyz" and "bearing" (sin, cos)
@@ -105,19 +107,19 @@ class CompositeApproachLoss(nn.Module):
         losses = []
         for name in self.enabled_losses:
             if name == "ade":
-                losses.append(self.ade_loss(pred_pos_norm, target_pos_norm, target_pad_mask))
+                losses.append(self.ade_loss(pred_pos_norm, target_pos_norm, lengths.target_valid_len))
             if name == "fde":
-                losses.append(self.fde_loss(pred_pos_norm, target_pos_norm, target_pad_mask))
+                losses.append(self.fde_loss(pred_pos_norm, target_pos_norm, lengths.target_valid_len))
             if name == "rtd":
                 losses.append(self.rtd_loss(pred_rtd, target_rtd))
             if name == "altitude":
-                losses.append(self.altitude_loss(pred_pos_norm, target_pos_norm, target_pad_mask))
+                losses.append(self.altitude_loss(pred_pos_norm, target_pos_norm, lengths.target_valid_len))
             if name == "localizer":
-                losses.append(self.localizer_loss(pred_pos_abs, target_pos_abs, target_pad_mask, runway))
+                losses.append(self.localizer_loss(pred_pos_abs, target_pos_abs, lengths.target_valid_len, runway))
             if name == "glideslope":
-                losses.append(self.glideslope_loss(pred_pos_abs, target_pos_abs, target_pad_mask, runway))
+                losses.append(self.glideslope_loss(pred_pos_abs, target_pos_abs, lengths.target_valid_len, runway))
             if name == "turn_rate":
-                losses.append(self.turn_rate_loss(pred_deltas_abs, target_pad_mask))
+                losses.append(self.turn_rate_loss(pred_deltas_abs, lengths.target_valid_len))
 
         task_losses = torch.stack(losses)
         weights = torch.exp(-self.log_vars)

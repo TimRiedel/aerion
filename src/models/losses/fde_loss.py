@@ -19,37 +19,36 @@ class FDELoss(nn.Module):
         self,
         pred_pos_norm: torch.Tensor,
         target_pos_norm: torch.Tensor,
-        target_pad_mask: torch.Tensor,
+        target_valid_len: torch.Tensor,
     ) -> torch.Tensor:
         """
         Final Displacement Error (FDE) loss in 2D or 3D normalized space.
 
-        Computes the masked FDE loss by calculating Euclidean distance between
-        the last valid (non-padded) predicted and target normalized positions.
+        Computes the distance between the predicted position at target landing time
+        and the target endpoint. Both positions are indexed by target_valid_len.
 
         Args:
             pred_pos_norm: Predicted normalized positions [batch_size, horizon_seq_len, 3]
             target_pos_norm: Target normalized positions [batch_size, horizon_seq_len, 3]
-            target_pad_mask: Padding mask [batch_size, horizon_seq_len] (True for padded positions)
+            target_valid_len: Number of valid target steps per sample [batch_size]
 
         Returns:
             Scalar loss value
         """
-        # 1. Find the index of the last valid (unpadded) waypoint for each trajectory in the batch
-        # target_pad_mask is True for padding. ~mask.sum(dim=1) - 1 gives the last valid index.
-        lengths = (~target_pad_mask).sum(dim=1) - 1
-        lengths = lengths.clamp(min=0)
-
-        # 2. Extract the last valid predicted and target positions for each trajectory
         batch_indices = torch.arange(pred_pos_norm.size(0), device=pred_pos_norm.device)
-        last_pred = pred_pos_norm[batch_indices, lengths]        # [batch_size, 3]
-        last_target = target_pos_norm[batch_indices, lengths]    # [batch_size, 3]
+
+        # 1. Find the index of the target landing step for each trajectory in the batch
+        last_idx = (target_valid_len - 1).clamp(min=0)
+
+        # 2. Extract the predicted and target positions at the target landing step
+        last_pred = pred_pos_norm[batch_indices, last_idx]    # [B, 3]
+        last_target = target_pos_norm[batch_indices, last_idx]  # [B, 3]
 
         # 3. Calculate Euclidean distance for each trajectory
-        diff_norm = last_pred - last_target  # [batch_size, 3]
+        diff_norm = last_pred - last_target  # [B, 3]
         if self.use_3d:
-            dist_norm = torch.norm(diff_norm, dim=-1) + self.epsilon          # [batch_size]
+            dist_norm = torch.norm(diff_norm, dim=-1) + self.epsilon # [B]
         else:
-            dist_norm = torch.norm(diff_norm[:, :2], dim=-1) + self.epsilon   # [batch_size]
+            dist_norm = torch.norm(diff_norm[:, :2], dim=-1) + self.epsilon # [B]
 
         return dist_norm.mean()

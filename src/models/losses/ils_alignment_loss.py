@@ -117,7 +117,7 @@ class LocalizerAlignmentLoss(nn.Module):
         self,
         pred_pos_abs: torch.Tensor,
         target_pos_abs: torch.Tensor,
-        target_pad_mask: torch.Tensor,
+        target_valid_len: torch.Tensor,
         runway: dict,
     ) -> torch.Tensor:
         """
@@ -126,7 +126,7 @@ class LocalizerAlignmentLoss(nn.Module):
         Args:
             pred_pos_abs: Predicted absolute positions [B, H, 3] (x, y, altitude in meters)
             target_pos_abs: Target absolute positions [B, H, 3] (not used, kept for API consistency)
-            target_pad_mask: Padding mask [B, H] (True for padded positions, False for valid positions)
+            target_valid_len: Number of valid target steps per sample [B]
             runway: RunwayData object containing:
                 - bearing: tensor [B, 2] with [sin(bearing), cos(bearing)] for runway direction
                 - xyz: tensor [B, 3] with threshold position [x, y, altitude] in meters
@@ -138,12 +138,16 @@ class LocalizerAlignmentLoss(nn.Module):
         runway_bearing = runway.bearing  # [B, 2]
         threshold_xyz = runway.xyz  # [B, 3]
         runway_length_m = runway.length  # [B]
-        valid_lengths = (~target_pad_mask).sum(dim=1)  # [B]
         losses = []
 
         for b in range(pred_pos_abs.size(0)):
-            end_idx = valid_lengths[b].item()
+            end_idx = target_valid_len[b].item()
             start_idx = max(0, end_idx - self.num_final_waypoints)
+            N = end_idx - start_idx
+
+            if N == 0:
+                losses.append(torch.tensor(0.0, device=pred_pos_abs.device))
+                continue
 
             final_positions_xy = pred_pos_abs[b, start_idx:end_idx, :2]  # [N, 2]
             rwy_bearing = runway_bearing[b]
@@ -151,9 +155,13 @@ class LocalizerAlignmentLoss(nn.Module):
             rwy_length = runway_length_m[b]
 
             localizer_dev = self._compute_localizer_deviation(final_positions_xy, thresh_xy, rwy_bearing, rwy_length)
-            track_dev = self._compute_track_alignment_deviation(final_positions_xy, rwy_bearing)
-
             localizer_penalties = self.loss_fn(localizer_dev, self.localizer_max_deviation_rad)  # [N]
+
+            if N == 1:
+                losses.append(localizer_penalties.mean())
+                continue
+
+            track_dev = self._compute_track_alignment_deviation(final_positions_xy, rwy_bearing)
             track_penalties = self.loss_fn(track_dev, self.heading_max_deviation_rad)  # [N-1]
 
             # Pad track penalties at the beginning to match size [N-1] -> [N]
@@ -234,7 +242,7 @@ class GlideslopeAlignmentLoss(nn.Module):
         self,
         pred_pos_abs: torch.Tensor,
         target_pos_abs: torch.Tensor,
-        target_pad_mask: torch.Tensor,
+        target_valid_len: torch.Tensor,
         runway: dict,
     ) -> torch.Tensor:
         """
@@ -243,7 +251,7 @@ class GlideslopeAlignmentLoss(nn.Module):
         Args:
             pred_pos_abs: Predicted absolute positions [B, H, 3] (x, y, altitude in meters)
             target_pos_abs: Target absolute positions [B, H, 3] (not used, kept for API consistency)
-            target_pad_mask: Padding mask [B, H] (True for padded positions, False for valid positions)
+            target_valid_len: Number of valid target steps per sample [B]
             runway: RunwayData object containing:
                 - bearing: tensor [B, 2] with [sin(bearing), cos(bearing)] for runway direction
                 - xyz: tensor [B, 3] with threshold position [x, y, altitude] in meters
@@ -253,12 +261,16 @@ class GlideslopeAlignmentLoss(nn.Module):
         """
         runway_bearing = runway.bearing  # [B, 2]
         threshold_xyz = runway.xyz  # [B, 3]
-        valid_lengths = (~target_pad_mask).sum(dim=1)  # [B]
         losses = []
 
         for b in range(pred_pos_abs.size(0)):
-            end_idx = valid_lengths[b].item()
+            end_idx = target_valid_len[b].item()
             start_idx = max(0, end_idx - self.num_final_waypoints)
+            N = end_idx - start_idx
+
+            if N == 0:
+                losses.append(torch.tensor(0.0, device=pred_pos_abs.device))
+                continue
 
             final_positions_xyz = pred_pos_abs[b, start_idx:end_idx, :]  # [N, 3]
             rwy_bearing = runway_bearing[b]
