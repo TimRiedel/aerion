@@ -13,7 +13,7 @@ experiment_name: "unconfigured_experiment"
 
 stage: "train"
 seed: 42
-load_checkpoint_path: null # Only used for prediction and evaluation
+load_checkpoint_path: "/sc/home/tim.riedel/masterthesis/aerion/.outputs/2026-04-04/14-41-41_aerion-transformer-first20-24L-traffic-count/epoch=38-val_loss=-1.47.ckpt" # Only used for prediction and evaluation
 execution:
   num_waypoints_to_predict: null
   num_trajectories_to_predict: null

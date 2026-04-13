@@ -1,0 +1,12 @@
+name: test_summer
+
+trajectories_path: /sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-test-summer/trajectories/EDDB_trajectories-resampled_2024-07-21_2024-07-30.parquet
+scenes_path: /sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-test-summer/trajectories/EDDB_trajectories-scenes_2024-07-21_2024-07-30.parquet
+flightinfo_path: /sc/home/tim.riedel/masterthesis/assets/datasets/EDDB-test-summer/flightinfo/EDDB_flightinfo_2024-07-21_2024-07-30.parquet
+
+input_time_minutes: 5
+horizon_time_minutes: 40
+resampling_rate_seconds: 30
+
+k_folds: 1
+cross_val_fold_idx: 0

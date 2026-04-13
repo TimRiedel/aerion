@@ -51,7 +51,7 @@ class BaseDataset(Dataset):
         return self.size
 
 
-    def get_flight_data(self, input_df: pd.DataFrame, horizon_df: pd.DataFrame, flight_id: Optional[str] = None) -> PredictionSample:
+    def get_flight_data(self, input_df: pd.DataFrame, horizon_df: pd.DataFrame, flight_id: Optional[str] = None, prediction_start_time: float = 0.0) -> PredictionSample:
         """
         Compute trajectory-related data from input and horizon DataFrames.
 
@@ -111,6 +111,7 @@ class BaseDataset(Dataset):
             last_input_pos_abs=last_input_pos_abs,
             runway=runway_data,
             flight_id=flight_id,
+            prediction_start_time=prediction_start_time,
         )
 
     def _compute_inputs_outputs(

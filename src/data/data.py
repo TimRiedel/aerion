@@ -51,7 +51,7 @@ class BaseData(pl.LightningDataModule, ABC):
             )
 
     @abstractmethod
-    def _build_full_train_dataset(self) -> Any:
+    def _build_full_dataset(self) -> Any:
         """Create the full training dataset instance for this data module."""
 
     @abstractmethod
@@ -60,7 +60,7 @@ class BaseData(pl.LightningDataModule, ABC):
 
     def setup(self, stage: str):
         if stage == "fit":
-            full_train_ds = self._build_full_train_dataset()
+            full_train_ds = self._build_full_dataset()
 
             train_ds, val_ds = self._split_dataset(full_train_ds)
 
@@ -69,7 +69,9 @@ class BaseData(pl.LightningDataModule, ABC):
             self.train_ds, self.val_ds = train_ds, val_ds
 
         if stage == "test":
-            raise NotImplementedError("Test dataset and normalization are not implemented yet")
+            test_ds = self._build_full_dataset()
+            test_ds.transform = T.Compose(self._get_transforms())
+            self.test_ds = test_ds
 
     def train_dataloader(self):
         return instantiate(
@@ -172,7 +174,7 @@ class BaseData(pl.LightningDataModule, ABC):
 
 
 class TrafficData(BaseData):
-    def _build_full_train_dataset(self) -> TrafficDataset:
+    def _build_full_dataset(self) -> TrafficDataset:
         return TrafficDataset(
             trajectories_path=self.dataset_cfg.trajectories_path,
             scenes_path=self.dataset_cfg.scenes_path,
@@ -190,7 +192,7 @@ class TrafficData(BaseData):
         return partial(collate_samples, max_agents=self.max_num_agents)
 
 class ApproachData(BaseData):
-    def _build_full_train_dataset(self) -> ApproachDataset:
+    def _build_full_dataset(self) -> ApproachDataset:
         return ApproachDataset(
             trajectories_path=self.dataset_cfg.trajectories_path,
             scenes_path=self.dataset_cfg.scenes_path,

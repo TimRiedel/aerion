@@ -8,7 +8,8 @@ from omegaconf import DictConfig
 from pytorch_lightning.callbacks import DeviceStatsMonitor, EarlyStopping, LearningRateMonitor, ModelCheckpoint, RichProgressBar
 from pytorch_lightning.loggers import WandbLogger, wandb
 
-from callbacks.metrics_parquet_callback import MetricsParquetCallback
+from callbacks.save_metrics_callback import SaveMetricsCallback
+from callbacks.save_trajectories_callback import SaveTrajectoriesCallback
 
 warnings.filterwarnings("ignore", message=".*srun.*")
 warnings.filterwarnings("ignore", message=".*Lightning model registry.*")
@@ -57,7 +58,9 @@ class Trainer(pl.Trainer):
                 save_last=checkpoint_cfg.get("save_last", True)
             )
             callbacks.append(checkpoint)
-            callbacks.append(MetricsParquetCallback(dirpath=dirpath, monitor=monitor, mode=mode))
+            callbacks.append(SaveMetricsCallback(dirpath=dirpath, monitor=monitor, mode=mode))
+
+        callbacks.append(SaveTrajectoriesCallback())
 
         callbacks.append(RichProgressBar())
         callbacks.append(DeviceStatsMonitor())

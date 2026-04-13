@@ -78,7 +78,8 @@ class ApproachDataset(BaseDataset):
         flight_df = self.flight_dict[flight_id]
         input_df = flight_df.loc[input_start_time:prediction_start_time]
         horizon_df = flight_df.loc[prediction_start_time:prediction_end_time]
-        prediction_sample = self.get_flight_data(input_df, horizon_df, flight_id)
+        prediction_sample = self.get_flight_data(input_df, horizon_df, flight_id,
+                                                 prediction_start_time=prediction_start_time.timestamp())
 
         if self.transform is not None:
             prediction_sample = self.transform(prediction_sample)

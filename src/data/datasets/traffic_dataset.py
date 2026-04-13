@@ -79,7 +79,8 @@ class TrafficDataset(BaseDataset):
             flight_df = self.flight_dict[flight_id]
             input_df = flight_df.loc[scene.input_start_time:scene.prediction_start_time]
             horizon_df = flight_df.loc[scene.prediction_start_time:scene.prediction_end_time]
-            flight_data = self.get_flight_data(input_df, horizon_df, flight_id)
+            flight_data = self.get_flight_data(input_df, horizon_df, flight_id,
+                                                prediction_start_time=scene.prediction_start_time.timestamp())
             flight_data_list.append(flight_data)
 
         sample = self.stack_flight_data_as_scene(flight_data_list)
@@ -160,4 +161,5 @@ class TrafficDataset(BaseDataset):
             last_input_pos_abs=torch.stack([f.last_input_pos_abs for f in flight_data]),
             runway=stack_runway_data([f.runway for f in flight_data]),
             flight_id=[f.flight_id for f in flight_data],
+            prediction_start_time=[f.prediction_start_time for f in flight_data],
         )

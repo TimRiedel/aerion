@@ -3,7 +3,7 @@ import os
 import pytorch_lightning as pl
 
 
-class MetricsParquetCallback(pl.Callback):
+class SaveMetricsCallback(pl.Callback):
     """
     Saves per-trajectory metrics to parquet files after each validation epoch.
 
@@ -15,7 +15,7 @@ class MetricsParquetCallback(pl.Callback):
     so that the best parquet and the best checkpoint always correspond.
 
     Usage (registered automatically by Trainer when a checkpoint config exists):
-        MetricsParquetCallback(dirpath=".outputs/checkpoints/...", monitor="val_loss", mode="min")
+        SaveMetricsCallback(dirpath=".outputs/checkpoints/...", monitor="val_loss", mode="min")
     """
 
     def __init__(self, dirpath: str, monitor: str = "val_loss", mode: str = "min"):
@@ -54,3 +54,10 @@ class MetricsParquetCallback(pl.Callback):
                 self.best_score = score
                 best_path = os.path.join(self.dirpath, "best_metrics.parquet")
                 df.to_parquet(best_path, index=False)
+
+    def on_test_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Save per-trajectory test metrics to a parquet file."""
+        os.makedirs(self.dirpath, exist_ok=True)
+        df = pl_module.test_metrics.to_dataframe()
+        test_path = os.path.join(self.dirpath, "test_metrics.parquet")
+        df.to_parquet(test_path, index=False)

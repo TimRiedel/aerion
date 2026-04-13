@@ -55,7 +55,13 @@ class BaseModule(pl.LightningModule):
         self.val_metrics = None
         self.train_metrics = None
 
+        # Register normalizer submodules so they are included in the state_dict.
+        # Placeholders are created in FeatureSchema.__init__; during training,
+        # on_fit_start re-registers the real ones after build_normalizers runs.
+        self.feature_schema.register_modules(self)
+
     def on_fit_start(self):
+        # Re-register with real normalizers (built by build_normalizers in data.setup)
         self.feature_schema.register_modules(self)
 
     # --------------------------------------
@@ -109,6 +115,14 @@ class BaseModule(pl.LightningModule):
     def on_validation_epoch_end(self):
         result = self.val_metrics.compute()
         self._log_metrics(result, "val")
+
+    def on_test_epoch_start(self):
+        self.test_metrics = TrajectoryMetrics(self.horizon_seq_len, self.device)
+        self._test_predictions = []
+
+    def on_test_epoch_end(self):
+        result = self.test_metrics.compute()
+        self._log_metrics(result, "test")
 
     # --------------------------------------
     # Logging and Visualization
@@ -333,6 +347,31 @@ class BaseModule(pl.LightningModule):
             f"{prefix}-rtd/RTD-Scatter": self.fig_to_wandb_image(fig)
         })
         plt.close(fig)
+
+    # --------------------------------------
+    # Test predictions
+    # --------------------------------------
+
+    def _accumulate_predictions(
+        self,
+        pred_pos_abs: torch.Tensor,
+        lengths: 'TrajectoryLengths',
+        flight_id: list,
+        prediction_start_time: list,
+        resampling_rate_seconds: int,
+    ):
+        """Accumulate predicted waypoints for parquet export during test."""
+        B = pred_pos_abs.size(0)
+        for i in range(B):
+            valid_len = int(lengths.pred_valid_len[i].item())
+            fid = flight_id[i]
+            start_ts = prediction_start_time[i]
+            positions = pred_pos_abs[i, :valid_len].detach().cpu().float().numpy()
+            for step in range(valid_len):
+                ts = start_ts + step * resampling_rate_seconds
+                self._test_predictions.append(
+                    (fid, ts, float(positions[step, 0]), float(positions[step, 1]), float(positions[step, 2]))
+                )
 
     # --------------------------------------
     # Utility

@@ -57,4 +57,5 @@ class PredictionSample:
     last_input_pos_abs: torch.Tensor
     runway: RunwayData
     flight_id: Union[str, List[str]]  # str for single flight, List[str] when batched
+    prediction_start_time: Union[float, List[float]]  # POSIX timestamp(s)
     agent_padding_mask: Optional[torch.Tensor] = None

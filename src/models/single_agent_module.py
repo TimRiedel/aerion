@@ -1,5 +1,3 @@
-from typing import Any, Dict
-
 import torch
 
 from data.compute.trajectory import compute_rtd, compute_trajectory_lengths, reconstruct_positions_from_deltas
@@ -30,18 +28,20 @@ class SingleAgentModule(BaseModule):
 
         pred_deltas_abs = self.feature_schema.denormalize_deltas(pred_deltas_norm)
         pred_pos_abs = reconstruct_positions_from_deltas(input_pos_abs, pred_deltas_abs)
-        pred_pos_norm = self.feature_schema.normalize_positions(pred_pos_abs)
-        target_pos_norm = self.feature_schema.normalize_positions(target_pos_abs)
 
         lengths = compute_trajectory_lengths(pred_deltas_abs, pred_pos_abs, runway.xyz[:, :2], target_pad_mask, self.delta_epsilon, self.terminal_area_m, self.min_consecutive_steps)
 
-        # For loss: anchor to target_valid_len — stable gradients during early training
-        pred_traj_distance_loss, _ = compute_rtd(pred_pos_abs, lengths.target_valid_len, runway.xyz, runway.bearing)
         # For metrics: use pred_valid_len — reflects where the model thinks the plane lands
         _, pred_rtd_metrics = compute_rtd(pred_pos_abs, lengths.pred_valid_len, runway.xyz, runway.bearing)
 
-        loss, loss_info = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, pred_deltas_abs, lengths, pred_traj_distance_loss, target_rtd, runway)
-        self._log_loss(loss, loss_info, prefix=prefix, batch_size=len(input_traj))
+        loss = None
+        if prefix != "test":
+            pred_pos_norm = self.feature_schema.normalize_positions(pred_pos_abs)
+            target_pos_norm = self.feature_schema.normalize_positions(target_pos_abs)
+            # For loss: anchor to target_valid_len — stable gradients during early training
+            pred_traj_distance_loss, _ = compute_rtd(pred_pos_abs, lengths.target_valid_len, runway.xyz, runway.bearing)
+            loss, loss_info = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, pred_deltas_abs, lengths, pred_traj_distance_loss, target_rtd, runway)
+            self._log_loss(loss, loss_info, prefix=prefix, batch_size=len(input_traj))
 
         metrics.update(
             pred_pos_abs=pred_pos_abs,
@@ -56,6 +56,12 @@ class SingleAgentModule(BaseModule):
             prefix=prefix, num_trajectories=num_trajectories_plotting
         )
 
+        if prefix == "test":
+            self._accumulate_predictions(
+                pred_pos_abs, lengths, list(flight_id),
+                batch.prediction_start_time, self.resampling_rate_seconds,
+            )
+
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -64,5 +70,6 @@ class SingleAgentModule(BaseModule):
     def validation_step(self, batch, batch_idx):
         return self.common_step(batch, batch_idx, self.val_metrics, "val", num_trajectories_plotting=self.num_visualized_traj)
     
-    def test_step(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
-        raise NotImplementedError("Test step not implemented")
+    def test_step(self, batch, batch_idx):
+        return self.common_step(batch, batch_idx, self.test_metrics, "test",
+                                num_trajectories_plotting=self.num_visualized_traj)

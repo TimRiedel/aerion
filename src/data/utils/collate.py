@@ -60,6 +60,9 @@ def pad_sample_to_n_agents(
     flight_ids = sample.flight_id if isinstance(sample.flight_id, list) else [sample.flight_id]
     flight_ids_padded = flight_ids + [""] * (max_agents - n_agents)
 
+    pred_start_times = sample.prediction_start_time if isinstance(sample.prediction_start_time, list) else [sample.prediction_start_time]
+    pred_start_times_padded = pred_start_times + [0.0] * (max_agents - n_agents)
+
     agent_padding_mask = torch.zeros(max_agents, dtype=torch.bool, device=sample.trajectory.encoder_in.device)
     agent_padding_mask[n_agents:] = True
 
@@ -72,6 +75,7 @@ def pad_sample_to_n_agents(
         last_input_pos_abs=last_pos_padded,
         runway=padded_runway,
         flight_id=flight_ids_padded,
+        prediction_start_time=pred_start_times_padded,
         agent_padding_mask=None,
     )
     return padded_sample, agent_padding_mask
@@ -144,4 +148,5 @@ def collate_samples(
         last_input_pos_abs=torch.stack([s.last_input_pos_abs for s in samples]),
         runway=stack_runway_data([s.runway for s in samples]),
         flight_id=[s.flight_id for s in samples],
+        prediction_start_time=[s.prediction_start_time for s in samples],
     )

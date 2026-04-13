@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, List
 
 import torch
 
@@ -40,18 +40,20 @@ class TrafficModule(BaseModule):
 
         pred_deltas_abs = self.feature_schema.denormalize_deltas(pred_deltas_norm)
         pred_pos_abs = reconstruct_positions_from_deltas(input_pos_abs, pred_deltas_abs)
-        pred_pos_norm = self.feature_schema.normalize_positions(pred_pos_abs)
-        target_pos_norm = self.feature_schema.normalize_positions(target_pos_abs)
 
         lengths = compute_trajectory_lengths(pred_deltas_abs, pred_pos_abs, runway.xyz[:, :2], target_pad_mask, self.delta_epsilon, self.terminal_area_m, self.min_consecutive_steps)
 
-        # For loss: anchor to target_valid_len — stable gradients during early training
-        pred_traj_distance_loss, _ = compute_rtd(pred_pos_abs, lengths.target_valid_len, runway.xyz, runway.bearing)
         # For metrics: use pred_valid_len — reflects where the model thinks the plane lands
         _, pred_rtd_metrics = compute_rtd(pred_pos_abs, lengths.pred_valid_len, runway.xyz, runway.bearing)
 
-        loss, loss_info = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, pred_deltas_abs, lengths, pred_traj_distance_loss, target_rtd, runway)
-        self._log_loss(loss, loss_info, prefix=prefix, batch_size=valid_agent_count)
+        loss = None
+        if prefix != "test":
+            pred_pos_norm = self.feature_schema.normalize_positions(pred_pos_abs)
+            target_pos_norm = self.feature_schema.normalize_positions(target_pos_abs)
+            # For loss: anchor to target_valid_len — stable gradients during early training
+            pred_traj_distance_loss, _ = compute_rtd(pred_pos_abs, lengths.target_valid_len, runway.xyz, runway.bearing)
+            loss, loss_info = self.loss(pred_pos_abs, target_pos_abs, pred_pos_norm, target_pos_norm, pred_deltas_abs, lengths, pred_traj_distance_loss, target_rtd, runway)
+            self._log_loss(loss, loss_info, prefix=prefix, batch_size=valid_agent_count)
 
         metrics.update(
             pred_pos_abs=pred_pos_abs,
@@ -65,7 +67,14 @@ class TrafficModule(BaseModule):
             input_pos_abs, target_pos_abs, pred_pos_abs, lengths, batch_idx, flight_id, target_rtd, pred_rtd_metrics,
             prefix=prefix, num_trajectories=num_trajectories_plotting
         )
-        
+
+        if prefix == "test":
+            prediction_start_time = flattened_batch["prediction_start_time"]
+            self._accumulate_predictions(
+                pred_pos_abs, lengths, flight_id,
+                prediction_start_time, self.resampling_rate_seconds,
+            )
+
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -74,8 +83,9 @@ class TrafficModule(BaseModule):
     def validation_step(self, batch, batch_idx):
         return self.common_step(batch, batch_idx, self.val_metrics, "val", num_trajectories_plotting=self.num_visualized_traj)
 
-    def test_step(self, batch: Dict[str, Any], batch_idx: int) -> Dict[str, torch.Tensor]:
-        raise NotImplementedError("Test step not implemented")
+    def test_step(self, batch, batch_idx):
+        return self.common_step(batch, batch_idx, self.test_metrics, "test",
+                                num_trajectories_plotting=self.num_visualized_traj)
 
 
     # --------------------------------------
@@ -86,7 +96,7 @@ class TrafficModule(BaseModule):
         self,
         batch: PredictionSample,
         pred_deltas_norm: torch.Tensor,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Flatten a batched multi-agent scene over the agent dimension.
 
@@ -112,6 +122,14 @@ class TrafficModule(BaseModule):
             fid for fid, is_valid in zip(flat_flight_ids, valid_agents_list) if is_valid
         ]
 
+        # Flatten prediction_start_time List[B][N] -> [B*N] with valid_agents mask
+        flat_pred_start: List[float] = [
+            ts for scene_ts in batch.prediction_start_time for ts in scene_ts
+        ]
+        pred_start_flat = [
+            ts for ts, is_valid in zip(flat_pred_start, valid_agents_list) if is_valid
+        ]
+
         valid_agent_count = int(valid_agents.sum().item())
 
         return {
@@ -122,6 +140,7 @@ class TrafficModule(BaseModule):
             "target_rtd": target_rtd_flat,
             "runway": runway_flat,
             "flight_id": flight_id_flat,
+            "prediction_start_time": pred_start_flat,
             "valid_agent_count": valid_agent_count,
         }
 

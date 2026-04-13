@@ -52,6 +52,17 @@ class FeatureSchema:
             self.decoder_by_name[group_name] = group
             start_idx = start_idx + group.width
 
+        # Create placeholder normalizers so they can be registered as submodules
+        # immediately. During training, build_normalizers() replaces these with
+        # real values. During test, load_state_dict() overwrites the buffers.
+        self.normalize_positions = Normalizer(torch.zeros(3), torch.ones(3))
+        self.normalize_deltas = Normalizer(torch.zeros(3), torch.ones(3))
+        self.denormalize_positions = Denormalizer(torch.zeros(3), torch.ones(3))
+        self.denormalize_deltas = Denormalizer(torch.zeros(3), torch.ones(3))
+
+        for group in self.encoder_groups + self.decoder_groups:
+            group.create_normalizer(torch.zeros(group.width), torch.ones(group.width))
+
 
     @property
     def required_df_cols(self) -> List[str]:
@@ -247,6 +258,16 @@ class FeatureSchema:
         for i, group in enumerate(self.decoder_groups):
             module.add_module(f"normalize_decoder_{i}_{group.name}", group.normalizer)
             group.normalizer.to(module.device)
+
+    def sync_normalizer_stats(self) -> None:
+        """After loading a checkpoint, sync group.mean/std from loaded normalizer buffers.
+
+        This is needed so that build_transforms() can read the correct stats
+        when setting up the test dataset transforms.
+        """
+        for group in self.encoder_groups + self.decoder_groups:
+            group.mean = group.normalizer.mean
+            group.std = group.normalizer.std
 
     # ----- Model-side: autoregressive decoding -----
 
