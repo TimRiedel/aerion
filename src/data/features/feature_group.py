@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import torch
-from torch import Tensor
-
 from data.compute.runway import get_distances_to_centerline
 from data.interface import RunwayData
 from data.utils import Normalizer
+from torch import Tensor
 
 
 class FeatureGroup(ABC):
@@ -29,6 +28,12 @@ class FeatureGroup(ABC):
         """Number of scalar features this group contributes to the tensor."""
 
     @property
+    def required_df_cols(self) -> List[str]:
+        """DataFrame columns this group needs from the parquet file.
+        Declared columns are extracted by the dataset."""
+        return []
+
+    @property
     def normalizer(self):
         if self._normalizer is None:
             raise ValueError(f"Normalizer not created for group {self.name}")
@@ -36,7 +41,11 @@ class FeatureGroup(ABC):
 
     @abstractmethod
     def compute(
-        self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         """
         Compute RAW (unnormalized) features from trajectory data.
@@ -46,9 +55,11 @@ class FeatureGroup(ABC):
             xyz_positions: absolute trajectory positions [T, 3]
             xyz_deltas: absolute trajectory deltas [T, 3]
             runway: RunwayData
+            additional_variables: optional dict of per-trajectory scalar tensors
+                extracted from the DataFrame (e.g. traffic_count_cosequenced).
 
         Returns:
-            Feature tensor [B, T, width]
+            Feature tensor [T, width]
         """
 
     @abstractmethod
@@ -93,10 +104,15 @@ class FeatureGroup(ABC):
 
 class XYPosition(FeatureGroup):
     name = "xy_position"
+    required_df_cols = ["x_coord", "y_coord"]
     width = 2
 
     def compute(
-        self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         return xyz_positions[:, :2]
 
@@ -111,10 +127,15 @@ class XYPosition(FeatureGroup):
 
 class Altitude(FeatureGroup):
     name = "altitude"
+    required_df_cols = ["altitude"]
     width = 1
 
     def compute(
-        self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         return xyz_positions[:, 2:3]
 
@@ -129,10 +150,15 @@ class Altitude(FeatureGroup):
 
 class DeltaXYZ(FeatureGroup):
     name = "delta_xyz"
+    required_df_cols = ["x_coord", "y_coord", "altitude"]
     width = 3
 
     def compute(
-        self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         return xyz_deltas
 
@@ -147,10 +173,15 @@ class DeltaXYZ(FeatureGroup):
 
 class DistanceToThresholdXY(FeatureGroup):
     name = "distance_to_threshold_xy"
+    required_df_cols = ["x_coord", "y_coord"]
     width = 2
 
     def compute(
-        self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         threshold_xy = runway.xyz[:2]
         return get_distances_to_centerline(xyz_positions[:, :2], [threshold_xy])
@@ -167,6 +198,7 @@ class DistanceToThresholdXY(FeatureGroup):
 
 class DistancesToCenterlineXY(FeatureGroup):
     name = "distances_to_centerline_xy"
+    required_df_cols = ["x_coord", "y_coord"]
 
     @property
     def width(self) -> int:
@@ -176,7 +208,11 @@ class DistancesToCenterlineXY(FeatureGroup):
         return 2 * n_points
 
     def compute(
-        self, xyz_positions: torch.Tensor, xyz_deltas: torch.Tensor, runway: RunwayData
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
     ) -> Tensor:
         return get_distances_to_centerline(
             xyz_positions[:, :2], runway.centerline_points_xy
@@ -193,10 +229,41 @@ class DistancesToCenterlineXY(FeatureGroup):
         )
 
 
+class TrafficCountCosequenced(FeatureGroup):
+
+    name = "traffic_count_cosequenced"
+    required_df_cols = ["traffic_count_cosequenced"]
+    width = 1
+
+    def compute(
+        self,
+        xyz_positions: torch.Tensor,
+        xyz_deltas: torch.Tensor,
+        runway: RunwayData,
+        additional_variables: Dict[str, Tensor] | None = None,
+    ) -> Tensor:
+        if additional_variables is None or "traffic_count_cosequenced" not in additional_variables:
+            raise ValueError("traffic_count_cosequenced requires additional_variables with key 'traffic_count_cosequenced'")
+        value = additional_variables["traffic_count_cosequenced"]
+        T = xyz_positions.shape[0]
+        return value.expand(T, 1)
+
+    def build_next_decoder_input(
+        self,
+        current_position_abs: Tensor,
+        pred_delta_abs: Tensor,
+        runway: RunwayData,
+    ) -> Tensor:
+        raise NotImplementedError(
+            "Cosequenced traffic count is an encoder feature group only. Adding it to the decoder is not supported."
+        )
+
+
 FEATURE_REGISTRY: Dict[str, type[FeatureGroup]] = {
     "xy_position": XYPosition,
     "altitude": Altitude,
     "delta_xyz": DeltaXYZ,
     "distance_to_threshold_xy": DistanceToThresholdXY,
     "distances_to_centerline_xy": DistancesToCenterlineXY,
+    "traffic_count_cosequenced": TrafficCountCosequenced,
 }
