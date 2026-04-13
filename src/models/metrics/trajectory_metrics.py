@@ -35,6 +35,7 @@ class TrajectoryMetrics:
         self.rtd = RtdMetrics()
         self.horizon = HorizonMetrics(horizon_seq_len, device)
         self._flight_ids: list[str] = []
+        self._prediction_start_timestamps: list = []
 
     def update(
         self,
@@ -44,6 +45,7 @@ class TrajectoryMetrics:
         pred_rtd: torch.Tensor,
         target_rtd: torch.Tensor,
         flight_id: Optional[list[str]] = None,
+        prediction_start_timestamp: Optional[list] = None,
     ) -> None:
         """
         Accumulate metrics for one batch of predictions.
@@ -55,6 +57,7 @@ class TrajectoryMetrics:
             pred_rtd: Predicted RTD per trajectory [B].
             target_rtd: Target RTD per trajectory [B].
             flight_id: Optional list of B flight ID strings.
+            prediction_start_timestamp: Optional list of B prediction start timestamps.
         """
         H = pred_pos_abs.size(1)
         eval_valid_mask = length_to_mask(lengths.eval_valid_len, H)      # [B, H] min(pred, target)
@@ -69,6 +72,10 @@ class TrajectoryMetrics:
         if flight_id is not None:
             has_valid_list = has_valid.tolist()
             self._flight_ids.extend(fid for fid, valid in zip(flight_id, has_valid_list) if valid)
+
+        if prediction_start_timestamp is not None:
+            has_valid_list = has_valid.tolist()
+            self._prediction_start_timestamps.extend(ts for ts, valid in zip(prediction_start_timestamp, has_valid_list) if valid)
 
     def compute(self) -> TrajectoryMetricsResult:
         """
@@ -98,6 +105,9 @@ class TrajectoryMetrics:
 
         if self._flight_ids:
             cols["flight_id"] = self._flight_ids
+
+        if self._prediction_start_timestamps:
+            cols["prediction_start_timestamp"] = pd.to_datetime(self._prediction_start_timestamps, unit="s", utc=True)
 
         cols.update(self.displacement.dataframe_columns())
         cols.update(self.position.dataframe_columns())

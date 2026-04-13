@@ -50,6 +50,7 @@ class SingleAgentModule(BaseModule):
             pred_rtd=pred_rtd_metrics,
             target_rtd=target_rtd,
             flight_id=list(flight_id),
+            prediction_start_timestamp=list(batch.prediction_start_time),
         )
         self._plot_prediction_vs_target(
             input_pos_abs, target_pos_abs, pred_pos_abs, lengths, batch_idx, flight_id, target_rtd, pred_rtd_metrics,
