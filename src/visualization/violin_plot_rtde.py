@@ -13,10 +13,10 @@ def plot_rtde_violins(
     dpi: int = 150,
     cmap: str = "viridis",
     is_rtdpe: bool = False,
-    clip_ylim: bool = True,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Create violin plot of prediction error (pred_rtd - target_rtd) by target RTD bucket.
+    Uses a symmetric log (symlog) y-axis scale.
 
     Parameters
     ----------
@@ -24,7 +24,7 @@ def plot_rtde_violins(
         Target RTD per trajectory in km, shape (B,).
     pred_rtde : np.ndarray
         Prediction error in km (pred_rtd - target_rtd) per trajectory, shape (B,).
-    bin_edges_km : np.ndarray, optional
+    bin_edges_km : list[int], optional
         Bin edges in km. Default: 0, 25, 50, ..., 300 (buckets 0-25, ..., 275-300).
     violin_width : float
         Width of each violin along x-axis.
@@ -34,8 +34,6 @@ def plot_rtde_violins(
         Colormap for the violins.
     is_rtdpe : bool
         If True, plot the RTD percentage error.
-    clip_ylim : bool
-        If True, clip the y-axis to [-30, 30] for RTDPE or [-50, 30] for absolute error.
 
     Returns
     -------
@@ -54,24 +52,14 @@ def plot_rtde_violins(
     non_empty_groups = [g for g in groups if len(g) > 0] # Filter out empty groups
     non_empty_indices = np.where(np.array([len(g) > 0 for g in groups]))[0]
 
-    ylim = (-30, 30) if is_rtdpe else (-50, 30)
-    active_ylim = ylim if clip_ylim else None
-
-    fig = plt.figure(figsize=(16, 7 if clip_ylim else 6), dpi=dpi)
-    if clip_ylim:
-        gs = fig.add_gridspec(2, 1, height_ratios=[1, 5], hspace=0.02)
-        ax_table = fig.add_subplot(gs[0])
-        ax = fig.add_subplot(gs[1])
-    else:
-        ax = fig.add_subplot(1, 1, 1)
-        ax_table = None
+    fig = plt.figure(figsize=(16, 7), dpi=dpi)
+    gs = fig.add_gridspec(2, 1, height_ratios=[1, 8], hspace=0.02)
+    ax_table = fig.add_subplot(gs[0])
+    ax = fig.add_subplot(gs[1])
 
     if not non_empty_violin_positions:
-        style_axes(ax, np.arange(1, n_bins + 1, dtype=float), bin_labels, is_rtdpe, active_ylim)
-        if ax_table is not None:
-            clip_stats = compute_clip_stats(groups, ylim)
-            unit_label = "%" if is_rtdpe else "km"
-            add_clip_stats_table(ax_table, violin_positions, clip_stats, unit_label, n_bins)
+        style_axes(ax, np.arange(1, n_bins + 1, dtype=float), bin_labels, is_rtdpe)
+        add_sample_count_table(ax_table, violin_positions, groups, n_bins)
         return fig, ax
 
     parts = ax.violinplot(
@@ -93,12 +81,8 @@ def plot_rtde_violins(
         pc.set_linewidth(1.2)
 
     add_box_plot(ax, non_empty_groups, non_empty_violin_positions, violin_width)
-    style_axes(ax, violin_positions, bin_labels, is_rtdpe, active_ylim)
-
-    if ax_table is not None:
-        clip_stats = compute_clip_stats(groups, ylim)
-        unit_label = "%" if is_rtdpe else "km"
-        add_clip_stats_table(ax_table, violin_positions, clip_stats, unit_label, n_bins)
+    style_axes(ax, violin_positions, bin_labels, is_rtdpe)
+    add_sample_count_table(ax_table, violin_positions, groups, n_bins)
 
     return fig, ax
 
@@ -197,61 +181,22 @@ def add_box_plot(
         ax.plot([pos - half - half/2, pos + half + half/2], [high_whisk, high_whisk], color="black", linewidth=1.2)
 
 
-
-def compute_clip_stats(
-    groups: List[np.ndarray],
-    ylim: Tuple[float, float],
-) -> List[dict]:
-    """Return per-bucket clipping statistics for the given ylim."""
-    stats = []
-    for data in groups:
-        if len(data) == 0:
-            stats.append({"n_clipped": 0, "n_total": 0, "min_val": None})
-            continue
-        clipped = data[(data < ylim[0]) | (data > ylim[1])]
-        clipped_neg = data[data < ylim[0]]
-        stats.append({
-            "n_clipped": len(clipped),
-            "n_total": len(data),
-            "min_val": float(np.min(clipped_neg)) if len(clipped_neg) > 0 else None,
-        })
-    return stats
-
-
-def add_clip_stats_table(
+def add_sample_count_table(
     ax: plt.Axes,
     positions: np.ndarray,
-    stats: List[dict],
-    unit_label: str,
+    groups: List[np.ndarray],
     n_bins: int,
 ) -> None:
-    """Render a 3-row annotation table aligned to violin x-positions."""
+    """Render a single-row annotation table with sample counts aligned to violin x-positions."""
     ax.axis("off")
     ax.set_xlim(0.5, n_bins + 0.5)
     ax.set_ylim(0, 1)
 
-    row_ys = [0.75, 0.50, 0.25]  # top-aligned, tight line spacing
-    row_labels = ["N Clipped", "N Total", f"Min. ({unit_label})"]
-    label_x = 0.5  # left margin in data coords
+    ax.text(0.5, 0.5, "N:", ha="right", va="center", color="black", fontstyle="italic")
 
-    for y, label in zip(row_ys, row_labels):
-        ax.text(
-            label_x, y, label + ":",
-            ha="right", va="center",
-            color="black", fontstyle="italic",
-        )
-
-    for pos, s in zip(positions, stats):
-        n_clipped = s["n_clipped"]
-        n_total = s["n_total"]
-        min_val = s["min_val"]
-
-        clipped_str = str(n_clipped) if n_total > 0 else "—"
-        total_str = str(n_total) if n_total > 0 else "—"
-        min_str = f"{min_val:.0f}" if min_val is not None else "—"
-
-        for y, text in zip(row_ys, [clipped_str, total_str, min_str]):
-            ax.text(pos, y, text, ha="center", va="center", color="black")
+    for pos, data in zip(positions, groups):
+        text = str(len(data)) if len(data) > 0 else "—"
+        ax.text(pos, 0.5, text, ha="center", va="center", color="black")
 
 
 def style_axes(
@@ -259,14 +204,17 @@ def style_axes(
     positions: np.ndarray,
     bin_labels: List[str],
     is_rtdpe: bool,
-    ylim: Tuple[float, float] | None = None,
 ) -> None:
-    """Set axis labels, ticks, grid and legend."""
+    """Set axis labels, ticks, symlog scale, grid and legend."""
     ax.set_xlabel("Target Distance (km)")
+    yticks = [-200, -100, -50, -20, -10, 0, 10, 20, 50, 100, 200]
     if is_rtdpe:
         ax.set_ylabel("RTD Percentage Error (%)")
+        linthresh = 20
     else:
         ax.set_ylabel("RTD Prediction Error (km)")
+        linthresh = 20
+
     ax.set_xticks(positions)
     ax.set_xticklabels(bin_labels)
 
@@ -274,9 +222,9 @@ def style_axes(
     n = len(positions)
     ax.set_xlim(0.5, n + 0.5)
 
-    if ylim is not None:
-        ax.set_ylim(ylim)
-        ax.set_yticks(np.arange(ylim[0], ylim[1] + 1, 10))
+    ax.set_yscale("symlog", linthresh=linthresh)
+    ax.set_yticks(yticks)
+    ax.get_yaxis().set_major_formatter(plt.ScalarFormatter())
 
     ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
     ax.grid(True, linestyle="--", alpha=0.5)
@@ -287,4 +235,3 @@ def style_axes(
         Line2D([0], [0], color="gray", linewidth=1.2, label="99% Central Interval"),
     ]
     ax.legend(handles=legend_elements, loc="lower left")
-
