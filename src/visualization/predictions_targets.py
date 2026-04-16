@@ -53,7 +53,7 @@ def plot_predictions_targets(
         Tuple of (ax_xy, ax_altitude) axes
     """
     linewidth = 1.5
-    dpi = 120
+    dpi = 150
     dot_size = (linewidth + 0.5) ** 2
 
     target_traj = target_traj[:target_valid_len]

@@ -40,8 +40,6 @@ def plot_rtde_violins(
     fig : matplotlib.figure.Figure
     ax : matplotlib.axes.Axes
     """
-    plt.rcParams.update({"font.size": 11})
-
     bin_edges_km = np.array(bin_edges_km)
     bin_labels = [f"[{int(lo)}, {int(hi)}]" for lo, hi in zip(bin_edges_km[:-1], bin_edges_km[1:])]
     n_bins = len(bin_edges_km) - 1
@@ -206,7 +204,7 @@ def style_axes(
     is_rtdpe: bool,
 ) -> None:
     """Set axis labels, ticks, symlog scale, grid and legend."""
-    ax.set_xlabel("Target Distance (km)")
+    ax.set_xlabel("Target RTD (km)")
     yticks = [-200, -100, -50, -20, -10, 0, 10, 20, 50, 100, 200]
     if is_rtdpe:
         ax.set_ylabel("RTD Percentage Error (%)")
