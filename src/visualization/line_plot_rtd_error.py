@@ -65,7 +65,7 @@ def plot_rtd_error_line(
     trans = offset_copy(ax.transData, fig=fig, y=10, units="points")
     for xi, val in zip(x, mean_per_bucket):
         if not np.isnan(val):
-            ax.text(xi, val, f"{val:.1f}", color=color, fontsize=plt.rcParams["font.size"],
+            ax.text(xi, val, f"{val:.1f}", color=color,
                     ha="center", va="bottom", zorder=4, transform=trans)
 
     band_iqr = Patch(facecolor=color, alpha=0.18, label="1.5×IQR")
@@ -73,7 +73,7 @@ def plot_rtd_error_line(
     lines, labels = ax.get_legend_handles_labels()
     ax.legend(lines + [band_q, band_iqr], labels + [band_q.get_label(), band_iqr.get_label()], loc="upper left")
 
-    ax.set_xlabel("Target Distance (km)")
+    ax.set_xlabel("Target RTD (km)")
     ax.set_ylabel(ylabel)
     ax.set_xticks(x)
     ax.set_xticklabels(bin_labels)
