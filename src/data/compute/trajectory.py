@@ -19,7 +19,7 @@ class TrajectoryLengths:
 
     @property
     def eval_valid_len(self) -> torch.Tensor:
-        return torch.minimum(self.pred_valid_len, self.target_valid_len)
+        return torch.maximum(self.pred_valid_len, self.target_valid_len)
 
 
 def length_to_mask(length: torch.Tensor, max_len: int) -> torch.Tensor:
